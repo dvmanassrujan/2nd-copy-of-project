@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const db = require('./db');
+const auth = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,48 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Helper to extract bearer token or query token
+function extractToken(req) {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  return req.query?.token || null;
+}
+
+// Optional Auth Middleware (attaches req.user if token present)
+function authenticate(req, res, next) {
+  const token = extractToken(req);
+  if (token) {
+    const payload = auth.verifySessionToken(token);
+    if (payload) {
+      req.user = payload;
+    }
+  }
+  next();
+}
+
+app.use(authenticate);
+
+// Role-Based Access Control Guard Middleware
+function requireRole(allowedRoles = []) {
+  return (req, res, next) => {
+    const token = extractToken(req);
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required. Please login.' });
+    }
+    const payload = auth.verifySessionToken(token);
+    if (!payload) {
+      return res.status(401).json({ error: 'Session expired or invalid. Please login again.' });
+    }
+    req.user = payload;
+    if (allowedRoles.length > 0 && !allowedRoles.includes(payload.role)) {
+      return res.status(403).json({ error: `Access denied. Dashboard restricted to authorized ${allowedRoles.join('/')} accounts.` });
+    }
+    next();
+  };
+}
 
 // Serve static frontend files from 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
@@ -50,48 +93,305 @@ app.post('/api/db/configure', async (req, res) => {
   });
 });
 
-// Auth / Role Accounts
+// ---------------- AUTHENTICATION & THREE-ROLE LOGIN ROUTES ----------------
+
+// Helper: Demo / Configured Accounts Info for Testing & Evaluation
 app.get('/api/auth/roles', (req, res) => {
-  const store = db.getDbStore();
-  const accounts = [
-    { id: 1, username: 'hussain', role: 'student', name: 'Hussain Basha', subtitle: '1st Year • CSE (ICB)', usn: '1KS25IC023' },
-    { id: 2, username: 'manas', role: 'student', name: 'D V Manas Srujan', subtitle: '1st Year • CSE (ICB)', usn: '1KS25IC015' },
-    { id: 5, username: 'prof_sharma', role: 'teacher', name: 'Prof. R. Sharma', subtitle: 'Assistant Professor • CSE (ICB)', empid: 'KSIT-FAC-014' },
-    { id: 8, username: 'dr_kumar', role: 'department', name: 'Dr. R. Kumar', subtitle: 'HOD • CSE (ICB)', empid: 'KSIT-HOD-001' }
-  ];
-  res.json(accounts);
+  res.json([
+    {
+      role: 'student',
+      title: 'Student Portal',
+      usn: '1KS25IC023',
+      dob: '2006-05-14',
+      name: 'Hussain Basha',
+      description: 'USN + Date of Birth Verification'
+    },
+    {
+      role: 'student',
+      title: 'Student Portal (Alt)',
+      usn: '1KS25IC015',
+      dob: '2006-08-22',
+      name: 'D V Manas Srujan',
+      description: 'USN + Date of Birth Verification'
+    },
+    {
+      role: 'teacher',
+      title: 'Faculty Portal',
+      mobile: '9845055667',
+      password: 'password123',
+      name: 'Prof. R. Sharma',
+      description: 'Registered Mobile + Secure Password'
+    },
+    {
+      role: 'department',
+      title: 'Department Staff Portal',
+      staffId: 'KSIT-HOD-001',
+      password: 'password123',
+      name: 'Department Office',
+      description: 'Staff / Employee ID + Secure Password'
+    }
+  ]);
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { username, password, role } = req.body;
-  const store = db.getDbStore();
+// 1. Student Login: USN + Date of Birth
+app.post('/api/auth/student-login', (req, res) => {
+  const { usn, dob, rememberMe } = req.body;
+  if (!usn || !dob) {
+    return res.status(400).json({ error: 'Both USN and Date of Birth are mandatory fields.' });
+  }
 
+  const cleanUsn = String(usn).trim().toUpperCase();
+  const store = db.getDbStore();
+  const student = store.students.find(s => s.usn && s.usn.toUpperCase() === cleanUsn);
+
+  if (!student) {
+    return res.status(401).json({ error: `No registered student record found for USN: ${cleanUsn}` });
+  }
+
+  const isDobValid = auth.verifyDob(dob, student);
+  if (!isDobValid) {
+    return res.status(401).json({ error: 'Incorrect Date of Birth provided for this USN. Please verify your records.' });
+  }
+
+  const user = store.users.find(u => u.id === student.user_id) || {
+    id: student.user_id,
+    name: student.name,
+    role: 'student',
+    username: cleanUsn.toLowerCase(),
+    email: `${cleanUsn.toLowerCase()}@ksit.edu.in`
+  };
+
+  const token = auth.createSessionToken({
+    userId: user.id,
+    role: 'student',
+    usn: student.usn,
+    name: student.name
+  }, !!rememberMe);
+
+  res.json({
+    success: true,
+    message: `Authentication successful! Welcome, ${student.name}.`,
+    token,
+    role: 'student',
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: 'student',
+      email: user.email,
+      avatar_url: user.avatar_url || '/assets/student_ref.jpg'
+    },
+    profile: student
+  });
+});
+
+// 2. Teacher Login: Registered Mobile + Password
+app.post('/api/auth/teacher-login', (req, res) => {
+  const mobile = req.body.mobile || req.body.phone;
+  const { password, rememberMe } = req.body;
+  if (!mobile || !password) {
+    return res.status(400).json({ error: 'Both Registered Mobile Number and Password are required.' });
+  }
+
+  const cleanMobile = auth.normalizePhone(mobile);
+  if (cleanMobile.length !== 10) {
+    return res.status(400).json({ error: 'Please enter a valid 10-digit registered mobile number.' });
+  }
+
+  const store = db.getDbStore();
+  const user = store.users.find(u => u.role === 'teacher' && auth.normalizePhone(u.phone) === cleanMobile);
+
+  if (!user) {
+    return res.status(401).json({ error: `No faculty account found with registered mobile number: ${mobile}` });
+  }
+
+  const isPasswordValid = auth.verifyPassword(password, user.password_hash);
+  if (!isPasswordValid) {
+    return res.status(401).json({ error: 'Invalid password. Please check and try again.' });
+  }
+
+  // Auto-upgrade password to salted PBKDF2 hash if not yet hashed
+  if (!user.password_hash.includes(':')) {
+    user.password_hash = auth.hashPassword(password);
+    db.saveMemoryDb();
+  }
+
+  const teacherProfile = store.teachers.find(t => t.user_id === user.id) || store.teachers[0];
+
+  const token = auth.createSessionToken({
+    userId: user.id,
+    role: 'teacher',
+    name: user.name,
+    employee_id: teacherProfile.employee_id
+  }, !!rememberMe);
+
+  res.json({
+    success: true,
+    message: `Faculty authentication verified. Welcome, ${user.name}!`,
+    token,
+    role: 'teacher',
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: 'teacher',
+      email: user.email,
+      avatar_url: user.avatar_url || '/assets/teacher_ref.jpg'
+    },
+    profile: teacherProfile
+  });
+});
+
+// 3. Department Staff Login: Registered Staff ID + Password
+app.post('/api/auth/department-login', (req, res) => {
+  const staffId = req.body.staffId || req.body.staff_id || req.body.employee_id;
+  const { password, rememberMe } = req.body;
+  if (!staffId || !password) {
+    return res.status(400).json({ error: 'Both Registered Staff ID and Password are required.' });
+  }
+
+  const cleanStaffId = String(staffId).trim().toUpperCase();
+  const store = db.getDbStore();
+  const user = store.users.find(u => 
+    u.role === 'department' && (
+      (u.staff_id && u.staff_id.toUpperCase() === cleanStaffId) ||
+      (u.employee_id && u.employee_id.toUpperCase() === cleanStaffId) ||
+      (u.username && u.username.toUpperCase() === cleanStaffId)
+    )
+  );
+
+  if (!user) {
+    return res.status(401).json({ error: `No department staff record found for Staff ID: ${staffId}` });
+  }
+
+  const isPasswordValid = auth.verifyPassword(password, user.password_hash);
+  if (!isPasswordValid) {
+    return res.status(401).json({ error: 'Invalid password. Please check and try again.' });
+  }
+
+  if (!user.password_hash.includes(':')) {
+    user.password_hash = auth.hashPassword(password);
+    db.saveMemoryDb();
+  }
+
+  const deptProfile = {
+    designation: 'Head of Department / Department Office',
+    department: 'CSE (ICB)',
+    employee_id: user.staff_id || user.employee_id || 'KSIT-HOD-001'
+  };
+
+  const token = auth.createSessionToken({
+    userId: user.id,
+    role: 'department',
+    name: user.name,
+    staff_id: deptProfile.employee_id
+  }, !!rememberMe);
+
+  res.json({
+    success: true,
+    message: `Department administration login verified. Welcome!`,
+    token,
+    role: 'department',
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: 'department',
+      email: user.email,
+      avatar_url: user.avatar_url || '/assets/dept_ref.jpg'
+    },
+    profile: deptProfile
+  });
+});
+
+// Unified Login Endpoint (Routes to appropriate role authenticator)
+app.post('/api/auth/login', (req, res) => {
+  const { role, usn, dob, mobile, staffId, password, rememberMe } = req.body;
+
+  if (role === 'student' || usn) {
+    return app._router.handle({ ...req, url: '/api/auth/student-login' }, res);
+  }
+  if (role === 'teacher' || mobile) {
+    return app._router.handle({ ...req, url: '/api/auth/teacher-login' }, res);
+  }
+  if (role === 'department' || staffId) {
+    return app._router.handle({ ...req, url: '/api/auth/department-login' }, res);
+  }
+
+  return res.status(400).json({ error: 'Invalid login request. Please select a valid role (Student, Teacher, or Department Staff).' });
+});
+
+// Forgot Password for Faculty and Department Staff
+app.post('/api/auth/forgot-password', (req, res) => {
+  const { role, identifier } = req.body;
+  if (!role || !identifier) {
+    return res.status(400).json({ error: 'Role and identifier (Mobile, Staff ID, or Email) are required.' });
+  }
+
+  if (role === 'student') {
+    return res.status(403).json({
+      error: 'Student credentials verification is handled directly by the KSIT Academic Office. Please contact the department administrative coordinator with your valid college identity card.'
+    });
+  }
+
+  const store = db.getDbStore();
   let user = null;
-  if (username) {
-    user = store.users.find(u => u.username.toLowerCase() === username.toLowerCase().trim());
-  } else if (role) {
-    user = store.users.find(u => u.role === role);
+  if (role === 'teacher') {
+    const cleanPhone = auth.normalizePhone(identifier);
+    user = store.users.find(u => u.role === 'teacher' && (auth.normalizePhone(u.phone) === cleanPhone || (u.email && u.email.toLowerCase() === identifier.toLowerCase())));
+  } else if (role === 'department') {
+    user = store.users.find(u => u.role === 'department' && (
+      (u.staff_id && u.staff_id.toUpperCase() === identifier.toUpperCase()) ||
+      (u.employee_id && u.employee_id.toUpperCase() === identifier.toUpperCase()) ||
+      (u.email && u.email.toLowerCase() === identifier.toLowerCase()) ||
+      u.username.toLowerCase() === identifier.toLowerCase()
+    ));
   }
 
   if (!user) {
-    return res.status(401).json({ error: 'User not found. Try demo users: hussain, prof_sharma, or dr_kumar.' });
+    return res.status(404).json({ error: `No registered ${role} account found matching: ${identifier}` });
   }
 
-  // Get role specific profile
+  res.json({
+    success: true,
+    message: `Password reset verification link has been dispatched to ${user.email}. Please follow the instructions to reset your password.`
+  });
+});
+
+// Get Current Authenticated Session Profile
+app.get('/api/auth/me', (req, res) => {
+  const token = extractToken(req);
+  if (!token) {
+    return res.status(401).json({ authenticated: false, error: 'No active session token found.' });
+  }
+
+  const payload = auth.verifySessionToken(token);
+  if (!payload) {
+    return res.status(401).json({ authenticated: false, error: 'Session has expired or is invalid. Please login again.' });
+  }
+
+  const store = db.getDbStore();
+  const user = store.users.find(u => u.id === payload.userId);
+  if (!user) {
+    return res.status(401).json({ authenticated: false, error: 'User account no longer exists in system records.' });
+  }
+
   let profile = {};
   if (user.role === 'student') {
     profile = store.students.find(s => s.user_id === user.id) || store.students[0];
   } else if (user.role === 'teacher') {
     profile = store.teachers.find(t => t.user_id === user.id) || store.teachers[0];
   } else {
-    profile = { designation: 'Head of Department', department: 'CSE (ICB)', employee_id: 'KSIT-HOD-001' };
+    profile = { designation: 'Head of Department', department: 'CSE (ICB)', employee_id: user.staff_id || 'KSIT-HOD-001' };
   }
 
   res.json({
+    authenticated: true,
+    role: user.role,
     user: {
       id: user.id,
-      username: user.username,
       name: user.name,
+      username: user.username,
       role: user.role,
       email: user.email,
       avatar_url: user.avatar_url
@@ -100,10 +400,18 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
+// Logout Session Endpoint
+app.post('/api/auth/logout', (req, res) => {
+  res.json({ success: true, message: 'Logged out successfully.' });
+});
+
 // 1. Student Dashboard Data
-app.get('/api/dashboard/student', (req, res) => {
+app.get('/api/dashboard/student', requireRole(['student', 'teacher', 'department']), (req, res) => {
   const store = db.getDbStore();
-  const student = store.students[0]; // Hussain Basha by default
+  let student = store.students[0];
+  if (req.user && req.user.role === 'student' && req.user.userId) {
+    student = store.students.find(s => s.user_id === req.user.userId) || student;
+  }
 
   res.json({
     student: {
@@ -134,21 +442,13 @@ app.get('/api/dashboard/student', (req, res) => {
         count: 2,
         sublabel: 'Next: Maths (12 Oct 2025)',
         icon: 'exam'
-      },
-      pendingAssignments: {
-        count: 3,
-        sublabel: 'Due this week',
-        icon: 'assignment'
       }
     },
     schedule: store.timetable,
     quickLinks: [
       { id: 1, label: 'View Attendance', icon: 'attendance', color: '#10b981', target: 'attendance' },
       { id: 2, label: 'Exam Results', icon: 'exam', color: '#8b5cf6', target: 'examination' },
-      { id: 3, label: 'Download Notes', icon: 'notes', color: '#3b82f6', target: 'academics' },
-      { id: 4, label: 'Library Portal', icon: 'library', color: '#f97316', target: 'library' },
-      { id: 5, label: 'Fee Payment', icon: 'payment', color: '#ec4899', target: 'external-fee' },
-      { id: 6, label: 'Bus Pass', icon: 'bus', color: '#06b6d4', target: 'external-bus' }
+      { id: 3, label: 'Library Portal', icon: 'library', color: '#f97316', target: 'academics' }
     ],
     announcements: store.notices.filter(n => n.target_role === 'student' || n.target_role === 'all'),
     upcomingEvents: store.events.slice(0, 3),
@@ -162,9 +462,12 @@ app.get('/api/dashboard/student', (req, res) => {
 });
 
 // 2. Teacher Dashboard Data
-app.get('/api/dashboard/teacher', (req, res) => {
+app.get('/api/dashboard/teacher', requireRole(['teacher', 'department']), (req, res) => {
   const store = db.getDbStore();
-  const teacher = store.teachers[0]; // Prof. R. Sharma
+  let teacher = store.teachers[0]; // Prof. R. Sharma
+  if (req.user && req.user.role === 'teacher' && req.user.userId) {
+    teacher = store.teachers.find(t => t.user_id === req.user.userId) || teacher;
+  }
 
   res.json({
     teacher: {
@@ -216,13 +519,13 @@ app.get('/api/dashboard/teacher', (req, res) => {
 });
 
 // 3. Department Dashboard Data
-app.get('/api/dashboard/department', (req, res) => {
+app.get('/api/dashboard/department', requireRole(['department']), (req, res) => {
   const store = db.getDbStore();
   const dept = store.department_overview;
 
   res.json({
     admin: {
-      name: 'Dr. R. Kumar',
+      name: 'Department Office',
       title: 'Department Staff Dashboard | CSE (ICB)',
       quote: '"Education is the most powerful weapon which you can use to change the world." - Nelson Mandela',
       date: 'Monday, 29 Sep 2025',
@@ -494,26 +797,6 @@ app.post('/api/notices', (req, res) => {
   res.status(201).json({ message: 'Notice posted successfully!', notice: newNotice });
 });
 
-// 8. Survey Driven Development & Insights
-app.get('/api/survey/results', (req, res) => {
-  const store = db.getDbStore();
-  res.json({
-    title: 'Student Community Survey Results (26/09/2026)',
-    total_surveyed: 56,
-    target_group: 'First-Year Engineering & CSE (ICB) Students',
-    presentation_reference: 'Slides 6, 7 & 8',
-    summary: 'Survey shows finding old study material is a major difficulty (91.1%), while important updates are missed in WhatsApp group conversations (87.5%). Highest preference was study materials (85.7%), followed by attendance tracking (73.2%).',
-    responses: store.survey_responses,
-    feature_priorities: [
-      { feature: 'Study Materials', count: 48, percentage: 85.7, rank: 1, implemented: true, module: 'Academic Resource Hub' },
-      { feature: 'Attendance Tracking', count: 41, percentage: 73.2, rank: 2, implemented: true, module: 'Attendance System' },
-      { feature: 'Previous-Year Question Papers', count: 31, percentage: 55.4, rank: 3, implemented: true, module: 'PYQ Archive' },
-      { feature: 'Activities & Events Calendar', count: 31, percentage: 55.4, rank: 4, implemented: true, module: 'Events & Activities' },
-      { feature: 'Courses & Certifications', count: 31, percentage: 55.4, rank: 5, implemented: true, module: 'Career & Certifications' }
-    ]
-  });
-});
-
 // 9. Examination & Marks
 app.get('/api/examinations', (req, res) => {
   const store = db.getDbStore();
@@ -611,3 +894,6 @@ async function start() {
 }
 
 start();
+
+module.exports = app;
+

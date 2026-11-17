@@ -8,15 +8,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/style.css?v=3.0">
 </head>
 <body>
-  <div class="app-container">
+  <!-- THREE-ROLE MODERN LOGIN PAGE -->
+  <div id="loginViewContainer" class="login-view-container" style="display: none;"></div>
+
+  <!-- AUTHENTICATED APP CONTAINER -->
+  <div class="app-container" id="appContainer">
     <!-- LEFT NAVY SIDEBAR -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="college-crest">
-          <img src="/assets/logo.png" alt="KSIT Crest" onerror="this.src='/assets/raw/WhatsApp Image 2026-09-29 at 4.35.47 PM.jpeg'">
+          <img src="/assets/logo.png" alt="KSIT Logo" onerror="this.src='/assets/ksit_logo.jpg'">
         </div>
         <div class="college-meta">
           <h2>KSIT</h2>
@@ -51,29 +55,24 @@
     <main class="main-content">
       <!-- TOP STICKY HEADER -->
       <header class="top-header">
+        <!-- Mobile Sidebar Toggle -->
+        <button class="sidebar-toggle-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" aria-label="Toggle Navigation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="20" height="20" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+
         <!-- Search Input -->
         <div class="header-search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           <input type="text" id="globalSearchInput" placeholder="Search for classes, notes, events, notices...">
         </div>
 
-        <!-- Role Switcher Pills (Instant Toggle for Evaluation & Demo) -->
-        <div class="role-switch-pills">
-          <button class="role-pill-btn active" data-role="student">
-            <span>🎓</span> Student
-          </button>
-          <button class="role-pill-btn" data-role="teacher">
-            <span>👨‍🏫</span> Teacher
-          </button>
-          <button class="role-pill-btn" data-role="department">
-            <span>🏛️</span> Department
-          </button>
-          <button class="role-pill-btn" data-role="survey">
-            <span>📊</span> Survey Insights
-          </button>
+        <!-- Authenticated Active Role Badge -->
+        <div class="active-session-pill" id="activeSessionPill">
+          <span id="sessionRoleIcon">🎓</span>
+          <span id="sessionRoleText">Student Portal</span>
         </div>
 
-        <!-- Header Actions: Database Badge, Notifications, User Menu -->
+        <!-- Header Actions: Database Badge, Notifications, User Menu, Logout -->
         <div class="header-actions">
           <div class="db-status-badge" id="dbStatusBadge" title="Click to view database connection details">
             <span class="db-pulse-dot"></span>
@@ -88,6 +87,12 @@
           <div class="user-profile-menu" id="userProfileMenu">
             <!-- Dynamic profile populated by app.js -->
           </div>
+
+          <!-- Sign Out Action -->
+          <button class="btn-portal-logout" id="portalLogoutBtn" onclick="handleLogout()" title="Sign Out of Portal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="15" height="15" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>Sign Out</span>
+          </button>
         </div>
       </header>
 
@@ -97,6 +102,9 @@
       </section>
     </main>
   </div>
+
+  <!-- MOBILE SIDEBAR BACKDROP -->
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
 
   <!-- REUSABLE MODAL BACKDROP & DIALOG -->
   <div class="modal-backdrop" id="genericModal" onclick="if(event.target===this) closeModal()">
@@ -115,6 +123,6 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- APPLICATION JAVASCRIPT -->
-  <script src="/js/app.js"></script>
+  <script src="/js/app.js?v=3.0"></script>
 </body>
 </html>

@@ -13,14 +13,14 @@ INSERT INTO `users` (`id`, `username`, `password_hash`, `role`, `name`, `email`,
 (5, 'prof_sharma', 'password123', 'teacher', 'Prof. R. Sharma', 'r.sharma@ksit.edu.in', '+91 98450 55667', '/assets/avatars/teacher1.png'),
 (6, 'dr_ramesh', 'password123', 'teacher', 'Dr. S. Ramesh', 's.ramesh@ksit.edu.in', '+91 98450 66778', '/assets/avatars/teacher2.png'),
 (7, 'prof_khan', 'password123', 'teacher', 'Prof. A. Khan', 'a.khan@ksit.edu.in', '+91 98450 77889', '/assets/avatars/teacher3.png'),
-(8, 'dr_kumar', 'password123', 'department', 'Dr. R. Kumar', 'hod.cse@ksit.edu.in', '+91 98450 88990', '/assets/avatars/hod.png');
+(8, 'dr_kumar', 'password123', 'department', 'Department Office', 'hod.cse@ksit.edu.in', '+91 98450 88990', '/assets/avatars/hod.png');
 
 -- 2. Students
-INSERT INTO `students` (`id`, `user_id`, `usn`, `year`, `semester`, `section`, `department`, `cgpa`, `present_days`, `total_days`, `blood_group`, `mentor_name`) VALUES
-(1, 1, '1KS25IC023', '1st Year', 1, 'A', 'CSE (ICB)', 8.12, 46, 50, 'O+', 'Prof. R. Sharma'),
-(2, 2, '1KS25IC015', '1st Year', 1, 'A', 'CSE (ICB)', 8.45, 48, 50, 'B+', 'Prof. R. Sharma'),
-(3, 3, '1KS25IC033', '1st Year', 1, 'A', 'CSE (ICB)', 8.30, 47, 50, 'A+', 'Prof. R. Sharma'),
-(4, 4, '1KS25IC045', '1st Year', 1, 'A', 'CSE (ICB)', 8.60, 49, 50, 'AB+', 'Prof. R. Sharma');
+INSERT INTO `students` (`id`, `user_id`, `usn`, `dob`, `year`, `semester`, `section`, `department`, `cgpa`, `present_days`, `total_days`, `blood_group`, `mentor_name`) VALUES
+(1, 1, '1KS25IC023', '2006-05-14', '1st Year', 1, 'A', 'CSE (ICB)', 8.12, 46, 50, 'O+', 'Prof. R. Sharma'),
+(2, 2, '1KS25IC015', '2006-08-22', '1st Year', 1, 'A', 'CSE (ICB)', 8.45, 48, 50, 'B+', 'Prof. R. Sharma'),
+(3, 3, '1KS25IC033', '2006-11-03', '1st Year', 1, 'A', 'CSE (ICB)', 8.30, 47, 50, 'A+', 'Prof. R. Sharma'),
+(4, 4, '1KS25IC045', '2006-02-19', '1st Year', 1, 'A', 'CSE (ICB)', 8.60, 49, 50, 'AB+', 'Prof. R. Sharma');
 
 -- 3. Teachers
 INSERT INTO `teachers` (`id`, `user_id`, `employee_id`, `designation`, `department`, `qualification`, `cabin_no`) VALUES
@@ -100,7 +100,7 @@ INSERT INTO `notices` (`id`, `title`, `description`, `category`, `priority`, `is
 (3, 'Community Project Guidelines (AY 2025-26)', 'All first-year CSE (ICB) student teams must submit their problem statement and survey analysis report by 10th October.', 'CBP', 'high', FALSE, 'student', '2025-09-26', 'CBP Coordinator'),
 (4, 'Hostel Mess Menu - This Week', 'Updated vegetarian and non-vegetarian catering schedule for the boys and girls hostel mess has been released.', 'Hostel', 'normal', FALSE, 'student', '2025-09-25', 'Hostel Warden'),
 (5, 'Placement Training Session - Register Now', 'Campus Placement Cell announces pre-placement aptitude and technical interview prep sessions starting Saturday.', 'Placement', 'normal', FALSE, 'all', '2025-09-24', 'Placement Officer'),
-(6, 'Department Meeting', 'All faculty members are requested to attend the monthly academic progress and NAAC documentation meeting.', 'Faculty', 'high', TRUE, 'teacher', '2025-09-28', 'Dr. R. Kumar, HOD');
+(6, 'Department Meeting', 'All faculty members are requested to attend the monthly academic progress and NAAC documentation meeting.', 'Faculty', 'high', TRUE, 'teacher', '2025-09-28', 'Department Office');
 
 -- 13. Events & Activities (Matches screenshot)
 INSERT INTO `events` (`id`, `title`, `category`, `event_date`, `time_range`, `venue`, `organizer`, `description`, `registered_count`) VALUES
@@ -123,7 +123,7 @@ INSERT INTO `placements` (`company_name`, `job_title`, `role_type`, `package_det
 
 -- 16. Community Project Details (From PPTX)
 INSERT INTO `community_activities` (`id`, `project_title`, `team_name`, `team_members`, `mentor`, `status`, `objective`, `presentation_date`) VALUES
-(1, 'CSE (ICB) Department Integrated Academic and Information Portal', 'STACK X', 'D V Manas Srujan (1KS25IC015), Hussain Basha (1KS25IC023), M Pavani Gowda (1KS25IC033), Purvi B V (1KS25IC045)', 'Prof. R. Sharma & Dr. R. Kumar', 'In Progress', 'Centralize all scattered academic materials, attendance tracking, syllabus, PYQ, and announcements into a single unified department portal.', '2026-09-29');
+(1, 'CSE (ICB) Department Integrated Academic and Information Portal', 'STACK X', 'D V Manas Srujan (1KS25IC015), Hussain Basha (1KS25IC023), M Pavani Gowda (1KS25IC033), Purvi B V (1KS25IC045)', 'Prof. R. Sharma', 'In Progress', 'Centralize all scattered academic materials, attendance tracking, syllabus, PYQ, and announcements into a single unified department portal.', '2026-09-29');
 
 -- 17. Survey Findings (Slide 6, 7, 8 - N=56 students on 26/09/2026)
 INSERT INTO `survey_responses` (`question_number`, `question_text`, `category`, `student_count`, `total_surveyed`, `percentage`) VALUES

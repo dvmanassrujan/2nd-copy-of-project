@@ -48,6 +48,8 @@ CREATE TABLE `students` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `user_id` INT NOT NULL UNIQUE,
   `usn` VARCHAR(20) NOT NULL UNIQUE,
+  `dob` DATE,
+  `dob_hash` VARCHAR(255),
   `year` VARCHAR(10) DEFAULT '1st Year',
   `semester` INT DEFAULT 1,
   `section` VARCHAR(5) DEFAULT 'A',

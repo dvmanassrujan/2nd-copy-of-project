@@ -43,7 +43,7 @@
     {
       "id": 5,
       "username": "prof_sharma",
-      "password_hash": "password123",
+      "password_hash": "f8d3afa96eb11735e9eec883ab122359:145dbf0acca9b10ac0d465d11d582177ec56a16a438e66944e0585996496c6878727b479255256497dd35f46f54e086eac9aa91a2d5370802cabcc8961cc426c",
       "role": "teacher",
       "name": "Prof. R. Sharma",
       "email": "r.sharma@ksit.edu.in",
@@ -73,12 +73,14 @@
     {
       "id": 8,
       "username": "dr_kumar",
-      "password_hash": "password123",
+      "password_hash": "a4acce1cd04795e998e9b1d8eef38711:c9a253f7a812abb5a062e46f4ef4bb87314ec94c2d5ec32774e018ff565dd91d73afc5342abecc29935c4a326119f30a72d488a500a70c7d0f18696fe18e4fb3",
       "role": "department",
-      "name": "Dr. R. Kumar",
+      "name": "Department Office",
       "email": "hod.cse@ksit.edu.in",
       "phone": "+91 98450 88990",
-      "avatar_url": "/assets/avatars/hod.png"
+      "avatar_url": "/assets/avatars/hod.png",
+      "staff_id": "KSIT-HOD-001",
+      "employee_id": "KSIT-HOD-001"
     }
   ],
   "students": [
@@ -96,7 +98,9 @@
       "total_days": 52,
       "attendance_pct": 88,
       "blood_group": "O+",
-      "mentor_name": "Prof. R. Sharma"
+      "mentor_name": "Prof. R. Sharma",
+      "dob": "2006-05-14",
+      "dob_hash": "4e2b86b957d406aa8dfb524d2a6a128b:58185dab6f9c5bcdb7ac5d737a0dc2e9f0bc6ada784e53817b14825c79e19440386824bf90e1ce2e26d2637a28b8576d350cad358e7dbee4f0de6dd0ff15cc4e"
     },
     {
       "id": 2,
@@ -112,7 +116,9 @@
       "total_days": 52,
       "attendance_pct": 92,
       "blood_group": "B+",
-      "mentor_name": "Prof. R. Sharma"
+      "mentor_name": "Prof. R. Sharma",
+      "dob": "2006-08-22",
+      "dob_hash": "a31b24d5fcadfb5356d53d2479f401ed:a5a636bd979ccfcd19f5a9273de235d0d9396b22307d53a053a5bf85198413b8806036b3ed7a0a5d03eb0ace7bcb657cc9e7c8d79b4b3b922fcbb448e1a96809"
     },
     {
       "id": 3,
@@ -128,7 +134,9 @@
       "total_days": 52,
       "attendance_pct": 94,
       "blood_group": "A+",
-      "mentor_name": "Prof. R. Sharma"
+      "mentor_name": "Prof. R. Sharma",
+      "dob": "2006-11-03",
+      "dob_hash": "5ee565876731d77ef1be1a89e4a5b6c3:cb2c47df3c4e398a7f8c68795491d7180fa454f17a8b8d8e2f5bc4fbc5e503c8b5d1369715f5bea875d73f5fbef97a0b4a290cb6b2101477575527034b0ec40f"
     },
     {
       "id": 4,
@@ -144,7 +152,9 @@
       "total_days": 52,
       "attendance_pct": 98,
       "blood_group": "AB+",
-      "mentor_name": "Prof. R. Sharma"
+      "mentor_name": "Prof. R. Sharma",
+      "dob": "2006-02-19",
+      "dob_hash": "67b357a77e6ce83222996ca63595ba22:8e2e11d05d2ed81b28ce10cf3d7605d6ccdec053346c451e4b5d79f827e2299876062146c3f0415b93c3cf987f7ceb30694c9f8c212abd81a71ad122ddcba7cd"
     },
     {
       "id": 5,
@@ -160,7 +170,9 @@
       "total_days": 0,
       "attendance_pct": 100,
       "blood_group": "B+",
-      "mentor_name": "Prof. R. Sharma"
+      "mentor_name": "Prof. R. Sharma",
+      "dob": "2006-01-01",
+      "dob_hash": "70011f1be0020f8bf4616f6d8c05a60b:c166c8a83887d87bcfb2661d7113a4b2d766c229f6ff87ac3056f5b509fc60e8fd66696768f316dd191245fcbb256143216c7214c5d388a7b9e2c5b703ff62cc"
     }
   ],
   "teachers": [
@@ -718,7 +730,7 @@
       "is_new": true,
       "target_role": "teacher",
       "date_posted": "28 Sep 2025",
-      "author": "Dr. R. Kumar (HOD)"
+      "author": "Department Office"
     }
   ],
   "events": [
@@ -1184,7 +1196,7 @@
       "project_title": "CSE (ICB) Department Integrated Academic and Information Portal",
       "team_name": "STACK X",
       "team_members": "D V Manas Srujan (1KS25IC015), Hussain Basha (1KS25IC023), M Pavani Gowda (1KS25IC033), Purvi B V (1KS25IC045)",
-      "mentor": "Prof. R. Sharma & Dr. R. Kumar (HOD)",
+      "mentor": "Prof. R. Sharma",
       "status": "In Progress (Phase 2 Live Deployment)",
       "objective": "Centralize all fragmented notes, syllabus, PYQ papers, attendance tracking, and announcements into a unified department portal for students and faculty.",
       "presentation_date": "2026-09-29"

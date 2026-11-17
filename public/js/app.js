@@ -6,14 +6,43 @@
 
 // Application State
 const AppState = {
-  currentRole: 'student', // 'student' | 'teacher' | 'department' | 'survey'
+  token: localStorage.getItem('ksit_portal_token') || sessionStorage.getItem('ksit_portal_token') || null,
+  currentRole: null, // 'student' | 'teacher' | 'department' | null
   currentTab: 'dashboard',
+  activeLoginRole: 'student', // 'student' | 'teacher' | 'department'
   user: null,
   profile: null,
   dbStatus: { engine: 'loading', activeRecords: {} },
   unreadNotifsCount: 3,
   notifications: [],
   cache: {}
+};
+
+// Native Fetch Interceptor with Automatic Bearer Token Injection
+const _nativeFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+  options = options || {};
+  options.headers = options.headers || {};
+  if (AppState.token) {
+    if (options.headers instanceof Headers) {
+      if (!options.headers.has('Authorization')) {
+        options.headers.set('Authorization', `Bearer ${AppState.token}`);
+      }
+    } else if (Array.isArray(options.headers)) {
+      options.headers.push(['Authorization', `Bearer ${AppState.token}`]);
+    } else {
+      if (!options.headers['Authorization'] && !options.headers['authorization']) {
+        options.headers['Authorization'] = `Bearer ${AppState.token}`;
+      }
+    }
+  }
+  return _nativeFetch.call(this, url, options).then(res => {
+    if (res.status === 401 && !url.includes('/api/auth/')) {
+      handleSessionExpired();
+      showToast('Session expired. Please log in.');
+    }
+    return res;
+  });
 };
 
 // SVG Icon Helpers (Crisp inline rendering)
@@ -32,7 +61,6 @@ const Icons = {
   faculty: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   students: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>`,
   reports: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>`,
-  survey: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`,
   database: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
   search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`,
   bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>`,
@@ -47,21 +75,17 @@ const Icons = {
 const NavigationMenus = {
   student: [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'academics', label: 'Academics & Study Hub', icon: 'academics' },
+    { id: 'academics', label: 'Academic & Study Hub', icon: 'academics' },
     { id: 'attendance', label: 'Attendance', icon: 'attendance' },
-    { id: 'assignments', label: 'Assignments', icon: 'assignments', badge: '3' },
     { id: 'examination', label: 'Examination', icon: 'examination' },
     { id: 'notices', label: 'Notices & Announcements', icon: 'notices' },
     { id: 'events', label: 'Events & Activities', icon: 'events' },
-    { id: 'library', label: 'Library', icon: 'library' },
-    { id: 'placements', label: 'Placement & Career', icon: 'placement' },
-    { id: 'community', label: 'Community Projects', icon: 'community' },
     { id: 'profile', label: 'Profile & Settings', icon: 'settings' }
   ],
   teacher: [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'attendance_record', label: 'Record Attendance', icon: 'attendance' },
-    { id: 'academics', label: 'Upload Study Materials', icon: 'upload' },
+    { id: 'academics', label: 'Resource Library', icon: 'academics' },
     { id: 'assignments_manage', label: 'Manage Assignments', icon: 'assignments', badge: '18' },
     { id: 'marks_manage', label: 'Manage Marks', icon: 'examination' },
     { id: 'notices_manage', label: 'Post Notice / Circular', icon: 'notices' },
@@ -74,51 +98,516 @@ const NavigationMenus = {
     { id: 'students_list', label: 'Students Management', icon: 'students' },
     { id: 'faculty_list', label: 'Faculty Management', icon: 'faculty' },
     { id: 'attendance_analytics', label: 'Attendance Analytics', icon: 'attendance' },
-    { id: 'academics', label: 'Resource Library', icon: 'academics' },
     { id: 'exam_approvals', label: 'Examination & Approvals', icon: 'examination', badge: '7' },
     { id: 'notices_manage', label: 'Notices & Circulars', icon: 'notices' },
-    { id: 'reports_dept', label: 'NBA / NAAC Reports', icon: 'reports' },
     { id: 'db_settings', label: 'Database & System Settings', icon: 'database' }
-  ],
-  survey: [
-    { id: 'survey_results', label: 'Survey Results & Analysis', icon: 'survey' },
-    { id: 'community', label: 'CBP Project Presentation', icon: 'community' }
   ]
 };
 
-// ---------------- INITIALIZATION ----------------
+// ---------------- INITIALIZATION & AUTHENTICATION ----------------
 document.addEventListener('DOMContentLoaded', async () => {
   await fetchDbStatus();
-  await switchRole('student', false);
   setupEventListeners();
-  renderApp();
+  await checkAuthSession();
 });
 
-// Switch Role Function
-async function switchRole(role, triggerRender = true) {
-  AppState.currentRole = role;
-  AppState.currentTab = role === 'survey' ? 'survey_results' : 'dashboard';
-
-  try {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role })
-    });
-    const data = await res.json();
-    AppState.user = data.user;
-    AppState.profile = data.profile;
-  } catch (e) {
-    console.error('Login error:', e);
+// Check Existing Session on Page Load
+async function checkAuthSession() {
+  if (!AppState.token) {
+    showLoginView();
+    return;
   }
 
-  // Update top role buttons
-  document.querySelectorAll('.role-pill-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.role === role);
-  });
+  try {
+    const res = await _nativeFetch('/api/auth/me', {
+      headers: { 'Authorization': `Bearer ${AppState.token}` }
+    });
 
-  if (triggerRender) {
-    renderApp();
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authenticated && data.user) {
+        AppState.user = data.user;
+        AppState.profile = data.profile;
+        AppState.currentRole = data.role;
+        showDashboardView();
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('Session verification failed:', e);
+  }
+
+  // Token invalid or expired
+  handleSessionExpired();
+}
+
+function showLoginView() {
+  const appContainer = document.getElementById('appContainer');
+  const loginContainer = document.getElementById('loginViewContainer');
+  if (appContainer) appContainer.style.display = 'none';
+  if (loginContainer) {
+    loginContainer.style.display = 'flex';
+    renderLoginPage();
+  }
+}
+
+function showDashboardView() {
+  const appContainer = document.getElementById('appContainer');
+  const loginContainer = document.getElementById('loginViewContainer');
+  if (loginContainer) loginContainer.style.display = 'none';
+  if (appContainer) appContainer.style.display = 'flex';
+  renderApp();
+}
+
+function handleSessionExpired() {
+  localStorage.removeItem('ksit_portal_token');
+  sessionStorage.removeItem('ksit_portal_token');
+  AppState.token = null;
+  AppState.user = null;
+  AppState.profile = null;
+  AppState.currentRole = null;
+  showLoginView();
+}
+
+async function handleLogout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {
+    // continue locally
+  }
+  handleSessionExpired();
+  showToast('You have been securely signed out.');
+}
+
+// ---------------- MODERN THREE-ROLE LOGIN PAGE RENDERER ----------------
+function renderLoginPage() {
+  const container = document.getElementById('loginViewContainer');
+  if (!container) return;
+
+  const role = AppState.activeLoginRole || 'student';
+
+  container.innerHTML = `
+    <div class="login-card-wrapper">
+      <div class="login-card-top-bar"></div>
+      
+      <!-- Institutional Branding Header -->
+      <div class="login-header">
+        <div class="login-crest">
+          <img src="/assets/logo.png" alt="KSIT Crest" onerror="this.src='/assets/ksit_logo.jpg'">
+        </div>
+        <div class="login-college-name">K. S. Institute of Technology, Bengaluru</div>
+        <div class="login-dept-title">Department of Computer Science & Engineering — ICB</div>
+        <div class="login-portal-subtitle">Integrated Academic & Information Portal • Single Sign-On</div>
+      </div>
+
+      <!-- Three Role Selection Cards -->
+      <div class="login-role-selector">
+        <div class="login-role-btn ${role === 'student' ? 'active' : ''}" onclick="selectLoginRole('student')">
+          <div class="role-icon">🎓</div>
+          <div class="role-title">Student</div>
+          <div class="role-sub">USN & DOB</div>
+        </div>
+        <div class="login-role-btn ${role === 'teacher' ? 'active' : ''}" onclick="selectLoginRole('teacher')">
+          <div class="role-icon">👨‍🏫</div>
+          <div class="role-title">Faculty</div>
+          <div class="role-sub">Mobile & Pass</div>
+        </div>
+        <div class="login-role-btn ${role === 'department' ? 'active' : ''}" onclick="selectLoginRole('department')">
+          <div class="role-icon">🏛️</div>
+          <div class="role-title">Department</div>
+          <div class="role-sub">Staff ID & HOD</div>
+        </div>
+      </div>
+
+      <!-- Login Form Body Area -->
+      <div class="login-form-area">
+        <div id="loginAlertBox" class="login-alert" style="display:none;"></div>
+
+        <form id="threeRoleLoginForm" onsubmit="handleLoginSubmit(event)">
+          ${getRoleFormFieldsHtml(role)}
+
+          <div class="login-options-row">
+            <label class="login-remember-label">
+              <input type="checkbox" id="loginRememberMe" checked>
+              <span>Remember me for 30 days</span>
+            </label>
+            ${role !== 'student' ? `
+              <button type="button" class="login-forgot-link" onclick="openForgotPasswordModal('${role}')">
+                Forgot password?
+              </button>
+            ` : `
+              <button type="button" class="login-forgot-link" onclick="openForgotPasswordModal('student')" style="color:#64748B;">
+                Need help?
+              </button>
+            `}
+          </div>
+
+          <button type="submit" id="loginSubmitBtn" class="login-submit-btn">
+            ${Icons.check || '<span>✔</span>'}
+            <span>Sign In to ${role === 'student' ? 'Student Portal' : role === 'teacher' ? 'Faculty Portal' : 'Department Portal'}</span>
+          </button>
+        </form>
+
+        <!-- Demo Accounts Quick-Fill Box for Evaluation -->
+        <div class="demo-accounts-box">
+          <div class="demo-accounts-header">
+            <span>Registered Accounts for Evaluation:</span>
+            <span style="font-size:10px;color:#4169E1;">Click to Autofill</span>
+          </div>
+          <div class="demo-account-pills">
+            <div class="demo-account-pill" onclick="autofillDemo('student', '1KS25IC023', '2006-05-14')">
+              <div class="acc-meta">
+                <span>🎓</span>
+                <span><strong>Hussain Basha</strong> (USN: <code>1KS25IC023</code>)</span>
+              </div>
+              <span class="btn-autofill">Autofill</span>
+            </div>
+            <div class="demo-account-pill" onclick="autofillDemo('student', '1KS25IC015', '2006-08-22')">
+              <div class="acc-meta">
+                <span>🎓</span>
+                <span><strong>D V Manas Srujan</strong> (USN: <code>1KS25IC015</code>)</span>
+              </div>
+              <span class="btn-autofill">Autofill</span>
+            </div>
+            <div class="demo-account-pill" onclick="autofillDemo('teacher', '9845055667', 'password123')">
+              <div class="acc-meta">
+                <span>👨‍🏫</span>
+                <span><strong>Prof. R. Sharma</strong> (Mobile: <code>9845055667</code>)</span>
+              </div>
+              <span class="btn-autofill">Autofill</span>
+            </div>
+            <div class="demo-account-pill" onclick="autofillDemo('department', 'KSIT-HOD-001', 'password123')">
+              <div class="acc-meta">
+                <span>🏛️</span>
+                <span><strong>Department Office</strong> (ID: <code>KSIT-HOD-001</code>)</span>
+              </div>
+              <span class="btn-autofill">Autofill</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function selectLoginRole(role) {
+  AppState.activeLoginRole = role;
+  renderLoginPage();
+}
+
+function getRoleFormFieldsHtml(role) {
+  if (role === 'student') {
+    return `
+      <!-- Student Login: USN + Date of Birth -->
+      <div class="login-input-group">
+        <label>
+          <span>University Seat Number (USN) <span class="req">*</span></span>
+          <span style="font-size:11px;color:#64748B;">Format: 1KS25IC...</span>
+        </label>
+        <div class="input-with-icon-wrap">
+          <svg class="input-lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          <input type="text" id="loginUsn" placeholder="Enter your registered USN (e.g. 1KS25IC023)" style="text-transform:uppercase;" required autocomplete="username">
+        </div>
+      </div>
+
+      <div class="login-input-group">
+        <label>
+          <span>Date of Birth <span class="req">*</span></span>
+          <span style="font-size:11px;color:#64748B;">As per SSLC / 10th Record</span>
+        </label>
+        <div class="input-with-icon-wrap">
+          <svg class="input-lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+          <input type="date" id="loginDob" required>
+        </div>
+      </div>
+    `;
+  }
+
+  if (role === 'teacher') {
+    return `
+      <!-- Teacher Login: Registered Mobile + Password -->
+      <div class="login-input-group">
+        <label>
+          <span>Registered Mobile Number <span class="req">*</span></span>
+          <span style="font-size:11px;color:#64748B;">10 Digits</span>
+        </label>
+        <div class="input-with-icon-wrap">
+          <svg class="input-lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <input type="tel" id="loginMobile" placeholder="e.g. 9845055667" maxlength="15" required autocomplete="tel">
+        </div>
+      </div>
+
+      <div class="login-input-group">
+        <label>
+          <span>Password <span class="req">*</span></span>
+        </label>
+        <div class="input-with-icon-wrap">
+          <svg class="input-lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input type="password" id="loginTeacherPassword" placeholder="Enter your faculty password" required autocomplete="current-password">
+          <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('loginTeacherPassword', this)" title="Show Password">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="17" height="17"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // Department Staff Login
+  return `
+    <!-- Department Staff Login: Registered Staff ID + Password -->
+    <div class="login-input-group">
+      <label>
+        <span>Registered Staff ID / Employee ID <span class="req">*</span></span>
+        <span style="font-size:11px;color:#64748B;">e.g. KSIT-HOD-001</span>
+      </label>
+      <div class="input-with-icon-wrap">
+        <svg class="input-lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        <input type="text" id="loginStaffId" placeholder="Enter Staff ID (e.g. KSIT-HOD-001)" style="text-transform:uppercase;" required autocomplete="username">
+      </div>
+    </div>
+
+    <div class="login-input-group">
+      <label>
+        <span>Password <span class="req">*</span></span>
+      </label>
+      <div class="input-with-icon-wrap">
+        <svg class="input-lead-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <input type="password" id="loginStaffPassword" placeholder="Enter department password" required autocomplete="current-password">
+        <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('loginStaffPassword', this)" title="Show Password">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="17" height="17"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="17" height="17"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+    btn.title = 'Hide Password';
+  } else {
+    input.type = 'password';
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="17" height="17"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    btn.title = 'Show Password';
+  }
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const alertBox = document.getElementById('loginAlertBox');
+  const submitBtn = document.getElementById('loginSubmitBtn');
+  const originalBtnText = submitBtn.innerHTML;
+
+  if (alertBox) {
+    alertBox.style.display = 'none';
+    alertBox.className = 'login-alert';
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = `<span>⏳</span> Authenticating...`;
+
+  try {
+    let endpoint = '';
+    let payload = {};
+
+    if (AppState.activeLoginRole === 'student') {
+      const usn = document.getElementById('loginUsn')?.value?.trim();
+      const dob = document.getElementById('loginDob')?.value?.trim();
+      const rememberMe = document.getElementById('loginRememberMe')?.checked;
+
+      if (!usn || !dob) {
+        throw new Error('Please enter both University Seat Number (USN) and Date of Birth.');
+      }
+      endpoint = '/api/auth/student-login';
+      payload = { usn, dob, rememberMe };
+    } else if (AppState.activeLoginRole === 'teacher') {
+      const mobile = document.getElementById('loginMobile')?.value?.trim();
+      const password = document.getElementById('loginTeacherPassword')?.value;
+      const rememberMe = document.getElementById('loginRememberMe')?.checked;
+
+      if (!mobile || !password) {
+        throw new Error('Please enter your 10-digit registered mobile number and password.');
+      }
+      endpoint = '/api/auth/teacher-login';
+      payload = { mobile, password, rememberMe };
+    } else if (AppState.activeLoginRole === 'department') {
+      const staffId = document.getElementById('loginStaffId')?.value?.trim();
+      const password = document.getElementById('loginStaffPassword')?.value;
+      const rememberMe = document.getElementById('loginRememberMe')?.checked;
+
+      if (!staffId || !password) {
+        throw new Error('Please enter your Registered Staff ID and password.');
+      }
+      endpoint = '/api/auth/department-login';
+      payload = { staffId, password, rememberMe };
+    }
+
+    const res = await _nativeFetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Authentication failed. Please verify your credentials.');
+    }
+
+    // Save token
+    const remember = payload.rememberMe;
+    if (remember) {
+      localStorage.setItem('ksit_portal_token', data.token);
+      sessionStorage.removeItem('ksit_portal_token');
+    } else {
+      sessionStorage.setItem('ksit_portal_token', data.token);
+      localStorage.removeItem('ksit_portal_token');
+    }
+
+    AppState.token = data.token;
+    AppState.user = data.user;
+    AppState.profile = data.profile;
+    AppState.currentRole = data.role;
+    AppState.currentTab = 'dashboard';
+
+    if (alertBox) {
+      alertBox.className = 'login-alert success';
+      alertBox.innerHTML = `<span>✔</span> ${data.message}`;
+      alertBox.style.display = 'flex';
+    }
+
+    showToast(`Welcome back, ${data.user.name}!`);
+
+    setTimeout(() => {
+      showDashboardView();
+    }, 400);
+
+  } catch (err) {
+    if (alertBox) {
+      alertBox.className = 'login-alert error';
+      alertBox.innerHTML = `<span>⚠</span> ${err.message}`;
+      alertBox.style.display = 'flex';
+    }
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalBtnText;
+  }
+}
+
+function autofillDemo(role, cred1, cred2) {
+  AppState.activeLoginRole = role;
+  renderLoginPage();
+  setTimeout(() => {
+    if (role === 'student') {
+      const usnInput = document.getElementById('loginUsn');
+      const dobInput = document.getElementById('loginDob');
+      if (usnInput) usnInput.value = cred1;
+      if (dobInput) dobInput.value = cred2;
+    } else if (role === 'teacher') {
+      const mobileInput = document.getElementById('loginMobile');
+      const passInput = document.getElementById('loginTeacherPassword');
+      if (mobileInput) mobileInput.value = cred1;
+      if (passInput) passInput.value = cred2;
+    } else if (role === 'department') {
+      const staffInput = document.getElementById('loginStaffId');
+      const passInput = document.getElementById('loginStaffPassword');
+      if (staffInput) staffInput.value = cred1;
+      if (passInput) passInput.value = cred2;
+    }
+    showToast(`Autofilled demo credentials for ${role.toUpperCase()}`);
+  }, 40);
+}
+
+function openForgotPasswordModal(role) {
+  const modal = document.getElementById('genericModal');
+  const title = document.getElementById('genericModalTitle');
+  const body = document.getElementById('genericModalBody');
+
+  if (role === 'student') {
+    title.innerText = 'Student Account Recovery Notice';
+    body.innerHTML = `
+      <div style="font-size:13.5px;color:#101C3A;line-height:1.6;margin-bottom:18px;">
+        <p><strong>Official KSIT Academic Notice:</strong></p>
+        <p style="margin-top:6px;">Student identity and Date of Birth credentials are electronically synchronized with autonomous university examination records.</p>
+        <p style="margin-top:10px;color:#64748B;">If you are experiencing difficulty accessing your student records, please visit the Department Administrative Office with your valid college identity card, or email <a href="mailto:academic.cse@ksit.edu.in" style="color:#4169E1;font-weight:700;">academic.cse@ksit.edu.in</a> quoting your USN.</p>
+      </div>
+      <div style="text-align:right;">
+        <button class="btn btn-secondary" onclick="closeModal()">Understood</button>
+      </div>
+    `;
+    modal.classList.add('open');
+    return;
+  }
+
+  const roleLabel = role === 'teacher' ? 'Faculty Member' : 'Department Staff';
+  const fieldLabel = role === 'teacher' ? 'Registered Mobile Number or Email' : 'Registered Staff ID or Email';
+  const placeholder = role === 'teacher' ? 'e.g. 9845055667 or r.sharma@ksit.edu.in' : 'e.g. KSIT-HOD-001 or hod.cse@ksit.edu.in';
+
+  title.innerText = `Password Recovery — ${roleLabel}`;
+  body.innerHTML = `
+    <div style="font-size:13px;color:#64748B;margin-bottom:16px;">
+      Enter your registered contact identifier. A secure one-time password verification link will be dispatched to your authorized institution email address.
+    </div>
+    <div id="forgotAlertBox" class="login-alert" style="display:none;"></div>
+    <div class="form-group">
+      <label>${fieldLabel}</label>
+      <input type="text" id="forgotIdentifier" class="form-control" placeholder="${placeholder}" required>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="btnSubmitForgot" onclick="submitForgotPassword('${role}')">
+        Send Reset Link &rarr;
+      </button>
+    </div>
+  `;
+  modal.classList.add('open');
+}
+
+async function submitForgotPassword(role) {
+  const input = document.getElementById('forgotIdentifier');
+  const alertBox = document.getElementById('forgotAlertBox');
+  const btn = document.getElementById('btnSubmitForgot');
+  const identifier = input?.value?.trim();
+
+  if (!identifier) {
+    if (alertBox) {
+      alertBox.className = 'login-alert error';
+      alertBox.innerHTML = '<span>⚠</span> Please enter your registered contact identifier.';
+      alertBox.style.display = 'flex';
+    }
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerText = 'Dispatching...';
+
+  try {
+    const res = await _nativeFetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, identifier })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Recovery request failed.');
+    }
+
+    if (alertBox) {
+      alertBox.className = 'login-alert success';
+      alertBox.innerHTML = `<span>✔</span> ${data.message}`;
+      alertBox.style.display = 'flex';
+    }
+    btn.style.display = 'none';
+  } catch (err) {
+    if (alertBox) {
+      alertBox.className = 'login-alert error';
+      alertBox.innerHTML = `<span>⚠</span> ${err.message}`;
+      alertBox.style.display = 'flex';
+    }
+    btn.disabled = false;
+    btn.innerText = 'Send Reset Link →';
   }
 }
 
@@ -139,20 +628,13 @@ function updateDbBadge() {
   if (!badge) return;
   const isMysql = AppState.dbStatus.engine === 'mysql';
   badge.innerHTML = `
-    <span class="db-pulse-dot" style="background: ${isMysql ? '#10b981' : '#3b82f6'};"></span>
+    <span class="db-pulse-dot" style="background: ${isMysql ? '#16A58B' : '#3b82f6'};"></span>
     <span>${isMysql ? 'MySQL: Connected' : 'Relational Store: Active'}</span>
   `;
 }
 
 // Global Event Listeners
 function setupEventListeners() {
-  // Role switcher clicks
-  document.querySelectorAll('.role-pill-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      switchRole(btn.dataset.role);
-    });
-  });
-
   // DB Badge click -> opens database config modal
   const dbBadge = document.getElementById('dbStatusBadge');
   if (dbBadge) {
@@ -225,23 +707,30 @@ function renderSidebar() {
         <h4>Educate • Empower</h4>
         <p>Build tomorrow. KSIT | CSE (ICB)</p>
       `;
-    } else if (AppState.currentRole === 'department') {
+    } else {
       bottomCard.innerHTML = `
         <h4>Together for Better</h4>
         <p>CSE (ICB) Department, KSIT, Bengaluru</p>
-      `;
-    } else {
-      bottomCard.innerHTML = `
-        <h4>CBP Project 2026</h4>
-        <p>Survey-Driven Department Portal</p>
       `;
     }
   }
 }
 
+// Responsive Sidebar Toggle
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebarBackdrop');
+  if (sb) sb.classList.toggle('open');
+  if (bd) bd.classList.toggle('active');
+}
+
 // Navigation Tab Switcher
 function navigateToTab(tabId) {
   AppState.currentTab = tabId;
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebarBackdrop');
+  if (sb) sb.classList.remove('open');
+  if (bd) bd.classList.remove('active');
   renderSidebar();
   renderMainView();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -254,6 +743,7 @@ function renderTopHeaderMeta() {
 
   let roleLabel = 'Student';
   let subText = '1st Year • CSE (ICB)';
+  let displayName = AppState.user.name;
 
   if (AppState.currentRole === 'teacher') {
     roleLabel = 'Faculty';
@@ -261,17 +751,33 @@ function renderTopHeaderMeta() {
   } else if (AppState.currentRole === 'department') {
     roleLabel = 'HOD';
     subText = 'CSE (ICB) Department';
-  } else if (AppState.currentRole === 'survey') {
-    roleLabel = 'CBP Team';
-    subText = 'Survey Findings';
+    displayName = 'Department Office';
   }
 
+  // Update active session badge in top bar
+  const sessionRoleIcon = document.getElementById('sessionRoleIcon');
+  const sessionRoleText = document.getElementById('sessionRoleText');
+  if (sessionRoleIcon && sessionRoleText) {
+    if (AppState.currentRole === 'teacher') {
+      sessionRoleIcon.textContent = '👨‍🏫';
+      sessionRoleText.textContent = 'Faculty Portal';
+    } else if (AppState.currentRole === 'department') {
+      sessionRoleIcon.textContent = '🏛️';
+      sessionRoleText.textContent = 'Department Portal';
+    } else {
+      sessionRoleIcon.textContent = '🎓';
+      sessionRoleText.textContent = 'Student Portal';
+    }
+  }
+
+  const initials = displayName.split(' ').map(n=>n[0]).join('').slice(0, 2);
+
   profileDiv.innerHTML = `
-    <div class="user-avatar-img" style="display:flex;align-items:center;justify-content:center;background:#2563eb;color:#fff;font-weight:700;">
-      ${AppState.user.name.split(' ').map(n=>n[0]).join('').slice(0, 2)}
+    <div class="user-avatar-img" style="display:flex;align-items:center;justify-content:center;background:#4169E1;color:#fff;font-weight:700;">
+      ${initials}
     </div>
     <div class="user-text-meta">
-      <div class="name">${AppState.user.name}</div>
+      <div class="name">${displayName}</div>
       <div class="role-sub">${subText}</div>
     </div>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="14" height="14" style="color:#94a3b8;"><polyline points="6 9 12 15 18 9"/></svg>
@@ -291,13 +797,11 @@ async function renderMainView() {
         await renderStudentDashboard(container);
         break;
       case 'academics':
-        await renderAcademicsHub(container);
+      case 'library':
+        await renderAcademicsHub(container, false);
         break;
       case 'attendance':
         await renderStudentAttendance(container);
-        break;
-      case 'assignments':
-        await renderStudentAssignments(container);
         break;
       case 'examination':
         await renderStudentExamination(container);
@@ -307,15 +811,6 @@ async function renderMainView() {
         break;
       case 'events':
         await renderEventsView(container);
-        break;
-      case 'library':
-        await renderLibraryView(container);
-        break;
-      case 'placements':
-        await renderPlacementsView(container);
-        break;
-      case 'community':
-        await renderCommunityView(container);
         break;
       case 'profile':
         await renderProfileView(container);
@@ -369,17 +864,11 @@ async function renderMainView() {
       case 'attendance_analytics':
         await renderDeptAttendanceAnalytics(container);
         break;
-      case 'academics':
-        await renderAcademicsHub(container, true);
-        break;
       case 'exam_approvals':
         await renderDeptExamApprovals(container);
         break;
       case 'notices_manage':
         await renderTeacherNoticesManage(container);
-        break;
-      case 'reports_dept':
-        await renderDeptReports(container);
         break;
       case 'db_settings':
         renderDbSettingsView(container);
@@ -387,8 +876,6 @@ async function renderMainView() {
       default:
         await renderDepartmentDashboard(container);
     }
-  } else if (AppState.currentRole === 'survey') {
-    await renderSurveyView(container);
   }
 }
 
@@ -459,18 +946,6 @@ async function renderStudentDashboard(container) {
         </div>
         <div class="metric-arrow">${Icons.chevronRight}</div>
       </div>
-
-      <div class="metric-card" onclick="navigateToTab('assignments')">
-        <div class="metric-left">
-          <div class="metric-icon-box red">${Icons.assignments}</div>
-          <div class="metric-info">
-            <div class="label">Pending Assignments</div>
-            <div class="value">${d.summaryCards.pendingAssignments.count}</div>
-            <div class="sublabel">${d.summaryCards.pendingAssignments.sublabel}</div>
-          </div>
-        </div>
-        <div class="metric-arrow">${Icons.chevronRight}</div>
-      </div>
     </div>
 
     <!-- 3-Column Dashboard Grid -->
@@ -519,33 +994,20 @@ async function renderStudentDashboard(container) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18" style="color:#eab308;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
               <div class="card-title">Quick Links</div>
             </div>
-            <a class="view-all-link" onclick="navigateToTab('academics')">View All &rarr;</a>
           </div>
 
           <div class="quick-links-grid">
             <div class="quick-link-btn" onclick="navigateToTab('attendance')">
-              <div class="quick-icon-wrap" style="background:#10b981;">${Icons.attendance}</div>
+              <div class="quick-icon-wrap" style="background:#16A58B;">${Icons.attendance}</div>
               <span>View Attendance</span>
             </div>
             <div class="quick-link-btn" onclick="navigateToTab('examination')">
-              <div class="quick-icon-wrap" style="background:#8b5cf6;">${Icons.examination}</div>
+              <div class="quick-icon-wrap" style="background:#8052D6;">${Icons.examination}</div>
               <span>Exam Results</span>
             </div>
             <div class="quick-link-btn" onclick="navigateToTab('academics')">
-              <div class="quick-icon-wrap" style="background:#3b82f6;">${Icons.academics}</div>
-              <span>Download Notes</span>
-            </div>
-            <div class="quick-link-btn" onclick="navigateToTab('library')">
               <div class="quick-icon-wrap" style="background:#f97316;">${Icons.library}</div>
               <span>Library Portal</span>
-            </div>
-            <div class="quick-link-btn" onclick="showToast('Fee portal: All current semester dues cleared.')">
-              <div class="quick-icon-wrap" style="background:#ec4899;">₹</div>
-              <span>Fee Payment</span>
-            </div>
-            <div class="quick-link-btn" onclick="showToast('BMTC Bus Pass verification status: Active.')">
-              <div class="quick-icon-wrap" style="background:#06b6d4;">🚌</div>
-              <span>Bus Pass</span>
             </div>
           </div>
         </div>
@@ -576,7 +1038,7 @@ async function renderStudentDashboard(container) {
         </div>
       </div>
 
-      <!-- Right Column: Announcements & Progress -->
+      <!-- Right Column: Announcements -->
       <div>
         <div class="card">
           <div class="card-header">
@@ -599,42 +1061,68 @@ async function renderStudentDashboard(container) {
             `).join('')}
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title-group">
-              ${Icons.reports}
-              <div class="card-title">Your Progress</div>
-            </div>
-            <a class="view-all-link" onclick="navigateToTab('examination')">View Details &rarr;</a>
-          </div>
-
-          <div class="progress-list">
-            ${d.progress.map(p => `
-              <div class="progress-item-wrap">
-                <div class="progress-header">
-                  <span>${p.name}</span>
-                  <span style="color:${p.color};">${p.percentage}%</span>
-                </div>
-                <div class="progress-bar-bg">
-                  <div class="progress-fill" style="width:${p.percentage}%; background-color:${p.color};"></div>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
       </div>
     </div>
   `;
 }
 
-// ---------------- 2. ACADEMIC RESOURCE HUB (Centralized Materials) ----------------
+// ---------------- 2. ACADEMIC RESOURCE HUB (Centralized Materials / Library) ----------------
 async function renderAcademicsHub(container, isTeacherOrDept = false) {
+  if (!isTeacherOrDept) {
+    // Student View: Library Integrated into Academic & Study Hub
+    const res = await fetch('/api/library');
+    const books = await res.json();
+
+    container.innerHTML = `
+      <div style="margin-bottom:20px;">
+        <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Academic & Study Hub — Library Catalogue</h2>
+        <p style="font-size:13px;color:#64748b;">Check textbook rack locations, shelf availability, and access digital eBooks.</p>
+      </div>
+
+      <div class="card table-responsive">
+        <table class="custom-table" id="academicLibraryTable">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Author</th>
+              <th>ISBN</th>
+              <th>Department / Domain</th>
+              <th>Semester</th>
+              <th>Available Copies</th>
+              <th>Physical Location</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${books.map(b => `
+              <tr>
+                <td><strong>${b.title}</strong></td>
+                <td>${b.author}</td>
+                <td><code>${b.isbn}</code></td>
+                <td>${b.category}</td>
+                <td>Sem ${b.semester}</td>
+                <td><span class="status-pill good">${b.available_copies} Copies</span></td>
+                <td><span class="room-badge">${b.rack_no}</span></td>
+                <td>
+                  <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="showToast('Digital eBook link opened!')">
+                    View eBook &nearr;
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  // Teacher View: Resource Library with Upload Capabilities
   container.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Centralized Academic Resource Hub</h2>
-        <p style="font-size:13px;color:#64748b;">Solve scattered WhatsApp notes, lost PDFs & syllabus — all in one searchable portal.</p>
+        <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Faculty Resource Library</h2>
+        <p style="font-size:13px;color:#64748b;">Centralized departmental repository for lecture notes, syllabus, PYQ papers & academic content.</p>
       </div>
       <div>
         <button class="btn btn-primary" onclick="openUploadResourceModal()">
@@ -714,7 +1202,7 @@ async function loadResourcesList() {
     container.innerHTML = `
       <div style="grid-column:1/-1;text-align:center;padding:50px;background:#fff;border-radius:12px;border:1px solid #e2e8f0;">
         <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" width="48" height="48" style="margin-bottom:12px;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <h4 style="font-size:16px;color:#0f172a;">No study materials found</h4>
+        <h4 style="font-size:16px;color:#101C3A;">No study materials found</h4>
         <p style="font-size:12px;color:#64748b;margin-top:4px;">Try changing filters or upload new academic content.</p>
       </div>
     `;
@@ -728,12 +1216,12 @@ async function loadResourcesList() {
           <span class="status-pill ${r.category === 'notes' ? 'ongoing' : r.category === 'pyq' ? 'upcoming' : 'warning'}" style="text-transform:uppercase;font-size:10px;">
             ${r.category.replace('_', ' ')}
           </span>
-          <span style="font-size:11px;font-weight:700;color:#2563eb;background:#eff6ff;padding:2px 8px;border-radius:12px;">
+          <span style="font-size:11px;font-weight:700;color:#4169E1;background:#eff6ff;padding:2px 8px;border-radius:12px;">
             Sem ${r.semester}
           </span>
         </div>
 
-        <h4 style="font-size:14.5px;font-weight:700;color:#0f172a;line-height:1.3;margin-bottom:6px;">${r.title}</h4>
+        <h4 style="font-size:14.5px;font-weight:700;color:#101C3A;line-height:1.3;margin-bottom:6px;">${r.title}</h4>
         <p style="font-size:12px;color:#64748b;line-height:1.4;margin-bottom:14px;">${r.description}</p>
       </div>
 
@@ -770,27 +1258,27 @@ async function renderStudentAttendance(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Attendance Tracking System</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Attendance Tracking System</h2>
       <p style="font-size:13px;color:#64748b;">Subject-wise live attendance monitoring with VTU eligibility criteria.</p>
     </div>
 
     <!-- Attendance Overview Ring Card -->
     <div class="card" style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;padding:28px;">
-      <div style="width:130px;height:130px;border-radius:50%;border:10px solid #10b981;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(16, 185, 129, 0.2);">
-        <div style="font-size:28px;font-weight:800;color:#0f172a;">${d.overall_percentage}%</div>
+      <div style="width:130px;height:130px;border-radius:50%;border:10px solid var(--color-teal, #0d9488);display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(13, 148, 136, 0.3);">
+        <div style="font-size:28px;font-weight:800;color:#101C3A;">${d.overall_percentage}%</div>
         <div style="font-size:11px;color:#64748b;font-weight:600;">Overall</div>
       </div>
 
       <div style="flex:1;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-          <h3 style="font-size:18px;font-weight:700;color:#0f172a;">Student: ${d.student_name}</h3>
+          <h3 style="font-size:18px;font-weight:700;color:#101C3A;">Student: ${d.student_name}</h3>
           <span class="status-pill good">${d.status}</span>
         </div>
         <p style="font-size:13px;color:#64748b;margin-bottom:12px;">
           You have attended <strong>${d.present_days} out of ${d.total_days}</strong> conducted instruction days. Minimum VTU requirement is 75% for examination hall ticket clearance.
         </p>
         <div style="display:flex;gap:20px;font-size:12px;">
-          <div><span style="color:#10b981;font-weight:700;">●</span> Attended: <strong>${d.present_days} Days</strong></div>
+          <div><span style="color:#16A58B;font-weight:700;">●</span> Attended: <strong>${d.present_days} Days</strong></div>
           <div><span style="color:#ef4444;font-weight:700;">●</span> Absent: <strong>${d.total_days - d.present_days} Days</strong></div>
           <div><span style="color:#3b82f6;font-weight:700;">●</span> Safety Margin: <strong>+17% over criteria</strong></div>
         </div>
@@ -821,10 +1309,10 @@ async function renderStudentAttendance(container) {
                 <td><strong>${s.subject_name}</strong></td>
                 <td>${s.classes_held}</td>
                 <td>${s.classes_attended}</td>
-                <td><strong style="color:${s.percentage >= 75 ? '#10b981' : '#ef4444'};">${s.percentage}%</strong></td>
+                <td><strong style="color:${s.percentage >= 75 ? '#16A58B' : '#ef4444'};">${s.percentage}%</strong></td>
                 <td style="width:160px;">
                   <div class="progress-bar-bg" style="height:6px;">
-                    <div class="progress-fill" style="width:${s.percentage}%;background:${s.percentage >= 75 ? '#10b981' : '#ef4444'};"></div>
+                    <div class="progress-fill" style="width:${s.percentage}%;background:${s.percentage >= 75 ? '#16A58B' : '#ef4444'};"></div>
                   </div>
                 </td>
                 <td><span class="status-pill ${s.percentage >= 75 ? 'good' : 'danger'}">${s.status}</span></td>
@@ -845,7 +1333,7 @@ async function renderStudentAssignments(container) {
   container.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Assignments & Deadlines</h2>
+        <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Assignments & Deadlines</h2>
         <p style="font-size:13px;color:#64748b;">Centralized submission tracking with faculty feedback & marks.</p>
       </div>
     </div>
@@ -861,7 +1349,7 @@ async function renderStudentAssignments(container) {
               </span>
             </div>
 
-            <h4 style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:6px;">${a.title}</h4>
+            <h4 style="font-size:15px;font-weight:700;color:#101C3A;margin-bottom:6px;">${a.title}</h4>
             <p style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.4;">${a.description}</p>
           </div>
 
@@ -898,7 +1386,7 @@ async function renderStudentExamination(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Examination & Performance Hub</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Examination & Performance Hub</h2>
       <p style="font-size:13px;color:#64748b;">Internal test schedules, syllabus, semester results & previous question papers.</p>
     </div>
 
@@ -958,7 +1446,7 @@ async function renderStudentExamination(container) {
               <tr>
                 <td><strong>${m.subject_name}</strong></td>
                 <td>${m.exam_type}</td>
-                <td><strong style="color:#2563eb;font-size:14px;">${m.marks_obtained}</strong></td>
+                <td><strong style="color:#4169E1;font-size:14px;">${m.marks_obtained}</strong></td>
                 <td>${m.max_marks}</td>
                 <td><span class="status-pill good">${m.grade}</span></td>
               </tr>
@@ -978,18 +1466,18 @@ async function renderNoticesView(container) {
   container.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Department Notices & Circulars</h2>
+        <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Department Notices & Circulars</h2>
         <p style="font-size:13px;color:#64748b;">Verified official updates — never lose important announcements in WhatsApp chat scroll.</p>
       </div>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:14px;">
       ${notices.map(n => `
-        <div class="card" style="margin-bottom:0;padding:18px 22px;border-left:4px solid ${n.priority === 'High' ? '#ef4444' : '#2563eb'};">
+        <div class="card" style="margin-bottom:0;padding:18px 22px;border-left:4px solid ${n.priority === 'High' ? '#ef4444' : '#4169E1'};">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
             <div style="display:flex;align-items:center;gap:10px;">
               <span class="status-pill ${n.category === 'Exams' ? 'upcoming' : 'ongoing'}">${n.category}</span>
-              <h4 style="font-size:15px;font-weight:700;color:#0f172a;">${n.title}</h4>
+              <h4 style="font-size:15px;font-weight:700;color:#101C3A;">${n.title}</h4>
               ${n.is_new ? '<span class="badge-new">New</span>' : ''}
             </div>
             <div style="font-size:11.5px;color:#64748b;">${n.date_posted}</div>
@@ -1009,7 +1497,7 @@ async function renderEventsView(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Events, Hackathons & Workshops</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Events, Hackathons & Workshops</h2>
       <p style="font-size:13px;color:#64748b;">Technical talks, coding competitions, and department activities.</p>
     </div>
 
@@ -1021,7 +1509,7 @@ async function renderEventsView(container) {
               <span class="room-badge">${e.category}</span>
               <span style="font-size:11px;color:#64748b;">Organized by: ${e.organizer}</span>
             </div>
-            <h4 style="font-size:15.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">${e.title}</h4>
+            <h4 style="font-size:15.5px;font-weight:700;color:#101C3A;margin-bottom:6px;">${e.title}</h4>
             <p style="font-size:12.5px;color:#64748b;margin-bottom:14px;line-height:1.4;">${e.description}</p>
           </div>
 
@@ -1047,7 +1535,7 @@ async function renderLibraryView(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Library & Digital Resource Catalogue</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Library & Digital Resource Catalogue</h2>
       <p style="font-size:13px;color:#64748b;">Check textbook rack locations, digital copies, and book availability.</p>
     </div>
 
@@ -1095,7 +1583,7 @@ async function renderPlacementsView(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Placement & Career Portal</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Placement & Career Portal</h2>
       <p style="font-size:13px;color:#64748b;">Campus placement drives, industry internships & pre-placement training sessions.</p>
     </div>
 
@@ -1107,8 +1595,8 @@ async function renderPlacementsView(container) {
               <span class="status-pill ongoing">${p.role_type}</span>
               <strong style="color:#059669;font-size:13px;">${p.package_details}</strong>
             </div>
-            <h4 style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:4px;">${p.company_name}</h4>
-            <div style="font-size:13px;font-weight:600;color:#2563eb;margin-bottom:8px;">${p.job_title}</div>
+            <h4 style="font-size:16px;font-weight:700;color:#101C3A;margin-bottom:4px;">${p.company_name}</h4>
+            <div style="font-size:13px;font-weight:600;color:#4169E1;margin-bottom:8px;">${p.job_title}</div>
             <p style="font-size:12px;color:#64748b;margin-bottom:10px;">Eligibility: <strong>${p.eligibility}</strong></p>
           </div>
 
@@ -1133,7 +1621,7 @@ async function renderCommunityView(container) {
   container.innerHTML = `
     <div style="margin-bottom:24px;">
       <span class="status-pill ongoing" style="margin-bottom:8px;">COMMUNITY-BASED PROJECT (CBP)</span>
-      <h2 style="font-size:24px;font-weight:800;color:#0f172a;">${cbp.project_title}</h2>
+      <h2 style="font-size:24px;font-weight:800;color:#101C3A;">${cbp.project_title}</h2>
       <p style="font-size:14px;color:#64748b;">Department of Computer Science & Engineering - ICB | K. S. Institute of Technology, Bengaluru</p>
     </div>
 
@@ -1166,37 +1654,30 @@ async function renderCommunityView(container) {
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));gap:16px;">
         <div style="background:#f8fafc;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
-          <div style="font-size:14px;font-weight:700;color:#0f172a;">D V Manas Srujan</div>
-          <div style="font-size:12px;color:#2563eb;font-weight:600;">1KS25IC015</div>
+          <div style="font-size:14px;font-weight:700;color:#101C3A;">D V Manas Srujan</div>
+          <div style="font-size:12px;color:#4169E1;font-weight:600;">1KS25IC015</div>
           <div style="font-size:11px;color:#64748b;margin-top:4px;">CSE (ICB) • 1st Year</div>
         </div>
         <div style="background:#f8fafc;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
-          <div style="font-size:14px;font-weight:700;color:#0f172a;">Hussain Basha</div>
-          <div style="font-size:12px;color:#2563eb;font-weight:600;">1KS25IC023</div>
+          <div style="font-size:14px;font-weight:700;color:#101C3A;">Hussain Basha</div>
+          <div style="font-size:12px;color:#4169E1;font-weight:600;">1KS25IC023</div>
           <div style="font-size:11px;color:#64748b;margin-top:4px;">CSE (ICB) • 1st Year</div>
         </div>
         <div style="background:#f8fafc;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
-          <div style="font-size:14px;font-weight:700;color:#0f172a;">M Pavani Gowda</div>
-          <div style="font-size:12px;color:#2563eb;font-weight:600;">1KS25IC033</div>
+          <div style="font-size:14px;font-weight:700;color:#101C3A;">M Pavani Gowda</div>
+          <div style="font-size:12px;color:#4169E1;font-weight:600;">1KS25IC033</div>
           <div style="font-size:11px;color:#64748b;margin-top:4px;">CSE (ICB) • 1st Year</div>
         </div>
         <div style="background:#f8fafc;padding:16px;border-radius:10px;border:1px solid #e2e8f0;">
-          <div style="font-size:14px;font-weight:700;color:#0f172a;">Purvi B V</div>
-          <div style="font-size:12px;color:#2563eb;font-weight:600;">1KS25IC045</div>
+          <div style="font-size:14px;font-weight:700;color:#101C3A;">Purvi B V</div>
+          <div style="font-size:12px;color:#4169E1;font-weight:600;">1KS25IC045</div>
           <div style="font-size:11px;color:#64748b;margin-top:4px;">CSE (ICB) • 1st Year</div>
         </div>
       </div>
 
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:13px;color:#475569;">
-        <strong>Project Mentors:</strong> Prof. R. Sharma (Assistant Professor) & Dr. R. Kumar (Head of Department, CSE ICB)
+        <strong>Project Mentors:</strong> Prof. R. Sharma (Assistant Professor)
       </div>
-    </div>
-
-    <!-- Quick Action to View Survey Findings -->
-    <div style="text-align:center;margin-top:20px;">
-      <button class="btn btn-primary" onclick="switchRole('survey')">
-        ${Icons.survey} View Community Survey Findings & Data Analysis &rarr;
-      </button>
     </div>
   `;
 }
@@ -1208,18 +1689,18 @@ async function renderProfileView(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">User Profile & Settings</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">User Profile & Settings</h2>
       <p style="font-size:13px;color:#64748b;">Manage academic credentials, notification preferences, and contact details.</p>
     </div>
 
     <div class="card" style="max-width:700px;">
       <div style="display:flex;align-items:center;gap:18px;margin-bottom:24px;">
-        <div style="width:64px;height:64px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;">
+        <div style="width:64px;height:64px;border-radius:50%;background:#4169E1;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;">
           ${u.name.split(' ').map(n=>n[0]).join('').slice(0, 2)}
         </div>
         <div>
-          <h3 style="font-size:18px;font-weight:700;color:#0f172a;">${u.name}</h3>
-          <div style="font-size:13px;color:#2563eb;font-weight:600;">${p.usn || p.employee_id || 'KSIT Staff'}</div>
+          <h3 style="font-size:18px;font-weight:700;color:#101C3A;">${u.name}</h3>
+          <div style="font-size:13px;color:#4169E1;font-weight:600;">${p.usn || p.employee_id || 'KSIT Staff'}</div>
           <div style="font-size:12px;color:#64748b;">${u.email}</div>
         </div>
       </div>
@@ -1372,85 +1853,37 @@ async function renderTeacherDashboard(container) {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
             <div style="background:#f8fafc;padding:14px;border-radius:10px;text-align:center;">
               <div style="font-size:11px;color:#64748b;font-weight:600;">Classes Conducted</div>
-              <div style="font-size:22px;font-weight:800;color:#0f172a;margin:4px 0;">${d.classOverview.classes_conducted}</div>
+              <div style="font-size:22px;font-weight:800;color:#101C3A;margin:4px 0;">${d.classOverview.classes_conducted}</div>
               <span class="status-pill good">${d.classOverview.classes_conducted_pct}%</span>
             </div>
 
             <div style="background:#f8fafc;padding:14px;border-radius:10px;text-align:center;">
               <div style="font-size:11px;color:#64748b;font-weight:600;">Attendance Rate</div>
               <div style="font-size:22px;font-weight:800;color:#059669;margin:4px 0;">${d.classOverview.attendance_rate}%</div>
-              <div style="font-size:10.5px;color:#10b981;">${d.classOverview.attendance_delta}</div>
+              <div style="font-size:10.5px;color:#16A58B;">${d.classOverview.attendance_delta}</div>
             </div>
 
             <div style="background:#f8fafc;padding:14px;border-radius:10px;text-align:center;">
               <div style="font-size:11px;color:#64748b;font-weight:600;">Average Marks</div>
-              <div style="font-size:22px;font-weight:800;color:#2563eb;margin:4px 0;">${d.classOverview.average_marks} / 10</div>
-              <div style="font-size:10.5px;color:#2563eb;">+0.6 improvement</div>
+              <div style="font-size:22px;font-weight:800;color:#4169E1;margin:4px 0;">${d.classOverview.average_marks} / 10</div>
+              <div style="font-size:10.5px;color:#4169E1;">+0.6 improvement</div>
             </div>
 
             <div style="background:#f8fafc;padding:14px;border-radius:10px;text-align:center;">
               <div style="font-size:11px;color:#64748b;font-weight:600;">Total Students</div>
-              <div style="font-size:22px;font-weight:800;color:#0f172a;margin:4px 0;">${d.classOverview.total_students}</div>
+              <div style="font-size:22px;font-weight:800;color:#101C3A;margin:4px 0;">${d.classOverview.total_students}</div>
               <span class="room-badge">3rd Sem CSE</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Attendance Trend Chart -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Attendance Overview (Aug - Dec)</div>
-            <span style="font-size:11px;color:#64748b;">Class vs Dept Avg</span>
-          </div>
-
-          <!-- SVG Interactive Line Graph -->
-          <div style="padding:10px 0;">
-            <svg viewBox="0 0 360 140" style="width:100%;height:140px;overflow:visible;">
-              <!-- Grid lines -->
-              <line x1="30" y1="120" x2="350" y2="120" stroke="#e2e8f0" stroke-width="1"/>
-              <line x1="30" y1="80" x2="350" y2="80" stroke="#e2e8f0" stroke-width="1"/>
-              <line x1="30" y1="40" x2="350" y2="40" stroke="#e2e8f0" stroke-width="1"/>
-
-              <!-- Labels -->
-              <text x="5" y="125" font-size="10" fill="#94a3b8">25%</text>
-              <text x="5" y="85" font-size="10" fill="#94a3b8">50%</text>
-              <text x="5" y="45" font-size="10" fill="#94a3b8">75%</text>
-              <text x="5" y="15" font-size="10" fill="#94a3b8">100%</text>
-
-              <!-- Month X-Labels -->
-              <text x="50" y="138" font-size="10" fill="#64748b">Aug</text>
-              <text x="120" y="138" font-size="10" fill="#64748b">Sep</text>
-              <text x="190" y="138" font-size="10" fill="#64748b">Oct</text>
-              <text x="260" y="138" font-size="10" fill="#64748b">Nov</text>
-              <text x="330" y="138" font-size="10" fill="#64748b">Dec</text>
-
-              <!-- Line 1: Dept Avg (Gray/Slate) -->
-              <polyline fill="none" stroke="#94a3b8" stroke-width="2" points="50,85 120,68 190,65 260,60 330,58"/>
-
-              <!-- Line 2: Your Classes (Bright Blue) -->
-              <polyline fill="none" stroke="#2563eb" stroke-width="3" points="50,75 120,38 190,34 260,26 330,24"/>
-
-              <!-- Data Dots -->
-              <circle cx="50" cy="75" r="4" fill="#2563eb"/>
-              <circle cx="120" cy="38" r="4" fill="#2563eb"/>
-              <circle cx="190" cy="34" r="4" fill="#2563eb"/>
-              <circle cx="260" cy="26" r="4" fill="#2563eb"/>
-              <circle cx="330" cy="24" r="4" fill="#2563eb"/>
-            </svg>
-            <div style="display:flex;justify-content:center;gap:20px;font-size:11px;margin-top:8px;">
-              <span style="color:#2563eb;font-weight:700;">● Your Classes (92%)</span>
-              <span style="color:#94a3b8;font-weight:600;">● Department Avg (72%)</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Right: Quick Actions & Evaluations -->
+      <!-- Right: Quick Actions -->
       <div>
         <div class="card">
           <div class="card-header">
             <div class="card-title-group">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#2563eb" width="18" height="18"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#4169E1" width="18" height="18"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
               <div class="card-title">Quick Actions</div>
             </div>
           </div>
@@ -1458,23 +1891,23 @@ async function renderTeacherDashboard(container) {
           <div style="display:flex;flex-direction:column;gap:10px;">
             <button class="btn btn-secondary" style="justify-content:space-between;padding:12px 16px;" onclick="navigateToTab('attendance_record')">
               <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#2563eb;">${Icons.attendance}</span>
+                <span style="color:#4169E1;">${Icons.attendance}</span>
                 <span>Mark Attendance</span>
               </span>
               <span>&rarr;</span>
             </button>
 
-            <button class="btn btn-secondary" style="justify-content:space-between;padding:12px 16px;" onclick="openUploadResourceModal()">
+            <button class="btn btn-secondary" style="justify-content:space-between;padding:12px 16px;" onclick="navigateToTab('academics')">
               <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#8b5cf6;">${Icons.upload}</span>
-                <span>Upload Study Materials</span>
+                <span style="color:#8052D6;">${Icons.academics}</span>
+                <span>Resource Library</span>
               </span>
               <span>&rarr;</span>
             </button>
 
             <button class="btn btn-secondary" style="justify-content:space-between;padding:12px 16px;" onclick="openCreateAssignmentModal()">
               <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#10b981;">${Icons.assignments}</span>
+                <span style="color:#16A58B;">${Icons.assignments}</span>
                 <span>Create Assignment</span>
               </span>
               <span>&rarr;</span>
@@ -1497,34 +1930,6 @@ async function renderTeacherDashboard(container) {
             </button>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Upcoming Evaluations</div>
-            <a class="view-all-link" onclick="navigateToTab('assignments_manage')">View All &rarr;</a>
-          </div>
-
-          <div class="table-responsive">
-            <table class="custom-table" style="font-size:11.5px;">
-              <thead>
-                <tr>
-                  <th>Date & Time</th>
-                  <th>Subject</th>
-                  <th>Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${d.upcomingEvaluations.map(e => `
-                  <tr>
-                    <td>${e.datetime}</td>
-                    <td><strong>${e.subject}</strong></td>
-                    <td><span class="status-pill upcoming">${e.type}</span></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
     </div>
   `;
@@ -1538,7 +1943,7 @@ async function renderTeacherAttendanceRecord(container) {
   container.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Record Class Attendance</h2>
+        <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Record Class Attendance</h2>
         <p style="font-size:13px;color:#64748b;">Instant period-wise attendance recording with live database sync.</p>
       </div>
 
@@ -1610,7 +2015,7 @@ async function renderTeacherAttendanceRecord(container) {
                 <td><strong style="color:#059669;">${s.attendance_pct}%</strong></td>
                 <td>
                   <div style="display:inline-flex;border-radius:20px;border:1px solid #cbd5e1;overflow:hidden;" class="att-toggle-group">
-                    <button type="button" class="btn-att-status active" data-status="present" onclick="setStudentAttStatus(this, 'present')" style="padding:5px 14px;border:none;background:#10b981;color:#fff;font-weight:700;font-size:11px;cursor:pointer;">Present</button>
+                    <button type="button" class="btn-att-status active" data-status="present" onclick="setStudentAttStatus(this, 'present')" style="padding:5px 14px;border:none;background:#16A58B;color:#fff;font-weight:700;font-size:11px;cursor:pointer;">Present</button>
                     <button type="button" class="btn-att-status" data-status="absent" onclick="setStudentAttStatus(this, 'absent')" style="padding:5px 14px;border:none;background:#f8fafc;color:#64748b;font-weight:700;font-size:11px;cursor:pointer;">Absent</button>
                     <button type="button" class="btn-att-status" data-status="on_duty" onclick="setStudentAttStatus(this, 'on_duty')" style="padding:5px 14px;border:none;background:#f8fafc;color:#64748b;font-weight:700;font-size:11px;cursor:pointer;">On Duty</button>
                   </div>
@@ -1632,7 +2037,7 @@ function setStudentAttStatus(btn, status) {
   });
 
   btn.style.color = '#fff';
-  if (status === 'present') btn.style.background = '#10b981';
+  if (status === 'present') btn.style.background = '#16A58B';
   else if (status === 'absent') btn.style.background = '#ef4444';
   else btn.style.background = '#f59e0b';
 
@@ -1682,7 +2087,7 @@ async function renderDepartmentDashboard(container) {
     <div class="welcome-hero-banner">
       <div class="hero-content">
         <div class="hero-subtitle">ADMINISTRATION & HOD PORTAL</div>
-        <div class="hero-title">Welcome back,<br>${d.admin.name}</div>
+        <div class="hero-title">Welcome back,<br>Department Office</div>
         <div class="hero-tagline">${d.admin.title}</div>
         <div class="hero-quote">${d.admin.quote}</div>
       </div>
@@ -1722,7 +2127,7 @@ async function renderDepartmentDashboard(container) {
         </div>
       </div>
 
-      <div class="metric-card" onclick="navigateToTab('academics')">
+      <div class="metric-card" style="cursor:default;">
         <div class="metric-left">
           <div class="metric-icon-box purple">${Icons.academics}</div>
           <div class="metric-info">
@@ -1758,7 +2163,7 @@ async function renderDepartmentDashboard(container) {
 
     <!-- Center Department Grid -->
     <div class="dashboard-grid-3col">
-      <!-- Left Column: Class & Subject Overview Table + Student Strength Trend -->
+      <!-- Left Column: Class & Subject Overview Table -->
       <div>
         <div class="card">
           <div class="card-header">
@@ -1789,50 +2194,6 @@ async function renderDepartmentDashboard(container) {
             </table>
           </div>
         </div>
-
-        <!-- Student Strength Trend (Sem 1 to Sem 8) Line Graph -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Student Strength Trend (Sem 1 to Sem 8)</div>
-            <span style="font-size:11px;color:#64748b;">420 Enrolled</span>
-          </div>
-
-          <div style="padding:10px 0;">
-            <svg viewBox="0 0 360 140" style="width:100%;height:140px;overflow:visible;">
-              <line x1="30" y1="120" x2="350" y2="120" stroke="#e2e8f0" stroke-width="1"/>
-              <line x1="30" y1="80" x2="350" y2="80" stroke="#e2e8f0" stroke-width="1"/>
-              <line x1="30" y1="40" x2="350" y2="40" stroke="#e2e8f0" stroke-width="1"/>
-
-              <!-- Trend Line -->
-              <polyline fill="none" stroke="#2563eb" stroke-width="3" points="40,105 80,90 120,85 160,75 200,55 240,45 280,30 320,25"/>
-              <polyline fill="none" stroke="#10b981" stroke-width="2" points="40,120 80,120 120,120 160,120 200,120 240,105 280,75 320,55"/>
-
-              <!-- Dots -->
-              <circle cx="40" cy="105" r="3.5" fill="#2563eb"/>
-              <circle cx="80" cy="90" r="3.5" fill="#2563eb"/>
-              <circle cx="120" cy="85" r="3.5" fill="#2563eb"/>
-              <circle cx="160" cy="75" r="3.5" fill="#2563eb"/>
-              <circle cx="200" cy="55" r="3.5" fill="#2563eb"/>
-              <circle cx="240" cy="45" r="3.5" fill="#2563eb"/>
-              <circle cx="280" cy="30" r="3.5" fill="#2563eb"/>
-              <circle cx="320" cy="25" r="3.5" fill="#2563eb"/>
-
-              <!-- Labels -->
-              <text x="35" y="136" font-size="9" fill="#64748b">Sem 1</text>
-              <text x="75" y="136" font-size="9" fill="#64748b">Sem 2</text>
-              <text x="115" y="136" font-size="9" fill="#64748b">Sem 3</text>
-              <text x="155" y="136" font-size="9" fill="#64748b">Sem 4</text>
-              <text x="195" y="136" font-size="9" fill="#64748b">Sem 5</text>
-              <text x="235" y="136" font-size="9" fill="#64748b">Sem 6</text>
-              <text x="275" y="136" font-size="9" fill="#64748b">Sem 7</text>
-              <text x="315" y="136" font-size="9" fill="#64748b">Sem 8</text>
-            </svg>
-            <div style="display:flex;justify-content:center;gap:20px;font-size:11px;margin-top:6px;">
-              <span style="color:#2563eb;font-weight:700;">● Total Students (420)</span>
-              <span style="color:#10b981;font-weight:700;">● Placed Students (210)</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Center Column: Attendance Overview Donut Chart & Examination Summary -->
@@ -1848,7 +2209,7 @@ async function renderDepartmentDashboard(container) {
             <div style="position:relative;width:120px;height:120px;">
               <svg viewBox="0 0 36 36" style="width:100%;height:100%;transform:rotate(-90deg);">
                 <!-- 92% Present -->
-                <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#10b981" stroke-width="3.5" stroke-dasharray="92 8" stroke-dashoffset="0"/>
+                <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#16A58B" stroke-width="3.5" stroke-dasharray="92 8" stroke-dashoffset="0"/>
                 <!-- 5% Absent -->
                 <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#ef4444" stroke-width="3.5" stroke-dasharray="5 95" stroke-dashoffset="-92"/>
                 <!-- 2% On Duty -->
@@ -1857,13 +2218,13 @@ async function renderDepartmentDashboard(container) {
                 <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#3b82f6" stroke-width="3.5" stroke-dasharray="1 99" stroke-dashoffset="-99"/>
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                <span style="font-size:22px;font-weight:800;color:#0f172a;">92%</span>
+                <span style="font-size:22px;font-weight:800;color:#101C3A;">92%</span>
                 <span style="font-size:9.5px;color:#64748b;">Overall</span>
               </div>
             </div>
 
             <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
-              <div><span style="color:#10b981;">●</span> Present: <strong>92%</strong></div>
+              <div><span style="color:#16A58B;">●</span> Present: <strong>92%</strong></div>
               <div><span style="color:#ef4444;">●</span> Absent: <strong>5%</strong></div>
               <div><span style="color:#f59e0b;">●</span> On Duty: <strong>2%</strong></div>
               <div><span style="color:#3b82f6;">●</span> Leave: <strong>1%</strong></div>
@@ -1910,7 +2271,7 @@ async function renderDepartmentDashboard(container) {
           <div style="display:flex;flex-direction:column;gap:10px;">
             <button class="btn btn-secondary" style="justify-content:space-between;padding:11px 14px;" onclick="openAddStudentModal()">
               <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#2563eb;">${Icons.students}</span>
+                <span style="color:#4169E1;">${Icons.students}</span>
                 <span>Add Student Record</span>
               </span>
               <span>&rarr;</span>
@@ -1918,7 +2279,7 @@ async function renderDepartmentDashboard(container) {
 
             <button class="btn btn-secondary" style="justify-content:space-between;padding:11px 14px;" onclick="navigateToTab('exam_approvals')">
               <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#8b5cf6;">${Icons.examination}</span>
+                <span style="color:#8052D6;">${Icons.examination}</span>
                 <span>Upload Marks / Approvals</span>
               </span>
               <span>&rarr;</span>
@@ -1926,16 +2287,8 @@ async function renderDepartmentDashboard(container) {
 
             <button class="btn btn-secondary" style="justify-content:space-between;padding:11px 14px;" onclick="navigateToTab('attendance_analytics')">
               <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#10b981;">${Icons.attendance}</span>
+                <span style="color:#16A58B;">${Icons.attendance}</span>
                 <span>View Attendance Analytics</span>
-              </span>
-              <span>&rarr;</span>
-            </button>
-
-            <button class="btn btn-secondary" style="justify-content:space-between;padding:11px 14px;" onclick="navigateToTab('reports_dept')">
-              <span style="display:flex;align-items:center;gap:10px;">
-                <span style="color:#06b6d4;">${Icons.reports}</span>
-                <span>Generate NAAC Reports</span>
               </span>
               <span>&rarr;</span>
             </button>
@@ -1973,85 +2326,13 @@ async function renderDepartmentDashboard(container) {
   `;
 }
 
-// ---------------- 15. DEDICATED SURVEY & CBP INSIGHTS VIEW ----------------
-async function renderSurveyView(container) {
-  const res = await fetch('/api/survey/results');
-  const d = await res.json();
-
-  container.innerHTML = `
-    <div style="margin-bottom:24px;">
-      <span class="status-pill ongoing" style="margin-bottom:8px;">SURVEY-DRIVEN DEVELOPMENT (26/09/2026)</span>
-      <h2 style="font-size:24px;font-weight:800;color:#0f172a;">${d.title} (N = ${d.total_surveyed} Students)</h2>
-      <p style="font-size:14px;color:#64748b;">${d.summary}</p>
-    </div>
-
-    <!-- Authentic Presentation Survey Chart Embeds -->
-    <div class="card" style="padding:24px;">
-      <div class="card-header">
-        <div class="card-title">Original Google Form Survey Charts (Slides 6, 7 & 8)</div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:20px;">
-        <div style="background:#f8fafc;padding:12px;border-radius:10px;text-align:center;">
-          <h5 style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:8px;">Q1-Q4: Student Difficulties</h5>
-          <img src="/assets/survey/image26.png" style="max-width:100%;border-radius:8px;box-shadow:var(--shadow-sm);" onerror="this.src='/assets/survey/image23.png'">
-        </div>
-
-        <div style="background:#f8fafc;padding:12px;border-radius:10px;text-align:center;">
-          <h5 style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:8px;">Q5-Q8: Feature Usefulness</h5>
-          <img src="/assets/survey/image27.png" style="max-width:100%;border-radius:8px;box-shadow:var(--shadow-sm);" onerror="this.src='/assets/survey/image24.png'">
-        </div>
-
-        <div style="background:#f8fafc;padding:12px;border-radius:10px;text-align:center;">
-          <h5 style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:8px;">Q9: Feature Priorities</h5>
-          <img src="/assets/survey/image28.png" style="max-width:100%;border-radius:8px;box-shadow:var(--shadow-sm);" onerror="this.src='/assets/survey/image25.png'">
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature Preferences Table & Problem-Solution Alignment Matrix -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">Survey Findings to Portal Feature Mapping (Exact Percentages)</div>
-      </div>
-
-      <div class="table-responsive">
-        <table class="custom-table">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Feature Demanded</th>
-              <th>Student Votes</th>
-              <th>Percentage</th>
-              <th>Implemented Portal Module</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${d.feature_priorities.map(p => `
-              <tr>
-                <td><strong>#${p.rank}</strong></td>
-                <td><strong>${p.feature}</strong></td>
-                <td>${p.count} / 56 Students</td>
-                <td><strong style="color:#2563eb;font-size:14px;">${p.percentage}%</strong></td>
-                <td><span class="room-badge">${p.module}</span></td>
-                <td><span class="status-pill good">✔ 100% Implemented</span></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
 // ---------------- 16. DATABASE & SYSTEM SETTINGS VIEW ----------------
 function renderDbSettingsView(container) {
   const isMysql = AppState.dbStatus.engine === 'mysql';
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">MySQL Database & System Settings</h2>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">MySQL Database & System Settings</h2>
       <p style="font-size:13px;color:#64748b;">Configure live MySQL Server connection or monitor the active storage engine.</p>
     </div>
 
@@ -2059,8 +2340,8 @@ function renderDbSettingsView(container) {
       <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:1px solid #e2e8f0;">
         <div>
           <div style="font-size:12px;color:#64748b;font-weight:600;">ACTIVE STORAGE ENGINE</div>
-          <div style="font-size:18px;font-weight:800;color:${isMysql ? '#059669' : '#2563eb'};display:flex;align-items:center;gap:8px;">
-            <span class="db-pulse-dot" style="background:${isMysql ? '#10b981' : '#3b82f6'};"></span>
+          <div style="font-size:18px;font-weight:800;color:${isMysql ? '#059669' : '#4169E1'};display:flex;align-items:center;gap:8px;">
+            <span class="db-pulse-dot" style="background:${isMysql ? '#16A58B' : '#3b82f6'};"></span>
             ${isMysql ? 'MySQL 8.0 Server (Active Database)' : 'Integrated Relational Store (Active Database)'}
           </div>
         </div>
@@ -2141,7 +2422,7 @@ async function renderStudentsDirectory(container, isDept = false) {
   container.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Students Directory</h2>
+        <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Students Directory</h2>
         <p style="font-size:13px;color:#64748b;">Complete roster of enrolled CSE (ICB) students.</p>
       </div>
       <div>
@@ -2188,8 +2469,8 @@ async function renderFacultyDirectory(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:20px;">
-      <h2 style="font-size:22px;font-weight:800;color:#0f172a;">Faculty Management & Roster</h2>
-      <p style="font-size:13px;color:#64748b;">CSE (ICB) department faculty members, qualifications, and cabin numbers.</p>
+      <h2 style="font-size:22px;font-weight:800;color:#101C3A;">Faculty Management & Roster</h2>
+      <p style="font-size:13px;color:#64748b;">CSE (ICB) department faculty members and qualifications.</p>
     </div>
 
     <div class="card table-responsive">
@@ -2201,7 +2482,6 @@ async function renderFacultyDirectory(container) {
             <th>Designation</th>
             <th>Department</th>
             <th>Qualification</th>
-            <th>Cabin No</th>
             <th>Assigned Students</th>
           </tr>
         </thead>
@@ -2213,7 +2493,6 @@ async function renderFacultyDirectory(container) {
               <td>${f.designation}</td>
               <td>${f.department}</td>
               <td>${f.qualification}</td>
-              <td><span class="room-badge">${f.cabin_no}</span></td>
               <td><strong>${f.total_students} Students</strong></td>
             </tr>
           `).join('')}
@@ -2581,11 +2860,11 @@ function openDbModal() {
   body.innerHTML = `
     <div style="margin-bottom:16px;">
       <div style="font-size:12px;color:#64748b;">CURRENT ENGINE</div>
-      <div style="font-size:16px;font-weight:700;color:${isMysql ? '#059669' : '#2563eb'};">
+      <div style="font-size:16px;font-weight:700;color:${isMysql ? '#059669' : '#4169E1'};">
         ${isMysql ? 'MySQL 8.0 Server (Connected)' : 'Integrated Relational Database (Active)'}
       </div>
       <p style="font-size:12px;color:#64748b;margin-top:4px;">
-        All tables (Users, Students, Teachers, Subjects, Attendance, Resources, Assignments, Notices, Survey) are loaded and operational.
+        All tables (Users, Students, Teachers, Subjects, Attendance, Resources, Assignments, Notices) are loaded and operational.
       </p>
     </div>
 
@@ -2632,8 +2911,8 @@ async function openNotifModal() {
   body.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:12px;">
       ${notifs.map(n => `
-        <div style="padding:12px 14px;background:#f8fafc;border-radius:8px;border-left:3px solid #2563eb;">
-          <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:3px;">${n.title}</div>
+        <div style="padding:12px 14px;background:#f8fafc;border-radius:8px;border-left:3px solid #4169E1;">
+          <div style="font-size:13px;font-weight:700;color:#101C3A;margin-bottom:3px;">${n.title}</div>
           <div style="font-size:12px;color:#475569;">${n.message}</div>
           <div style="font-size:10.5px;color:#94a3b8;margin-top:4px;">${n.time || 'Recent'}</div>
         </div>
